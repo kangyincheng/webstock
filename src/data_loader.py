@@ -1,8 +1,18 @@
 import os
 import numpy as np
 import pandas as pd
-import baostock as bs
 from sklearn.preprocessing import MinMaxScaler
+
+
+def _import_baostock():
+    """延迟导入 baostock，避免未安装时无法启动 GUI"""
+    try:
+        import baostock as bs
+        return bs
+    except ImportError:
+        raise ImportError(
+            "未安装 baostock 模块，请先执行：pip install baostock"
+        )
 
 
 class StockDataLoader:
@@ -21,13 +31,18 @@ class StockDataLoader:
         self.feature_cols = []
 
     def login(self):
+        bs = _import_baostock()
         lg = bs.login()
         if lg.error_code != "0":
             raise RuntimeError(f"Baostock login failed: {lg.error_msg}")
         return lg
 
     def logout(self):
-        bs.logout()
+        try:
+            bs = _import_baostock()
+            bs.logout()
+        except ImportError:
+            pass
 
     def fetch_data(self, stock_code, start_date, end_date, frequency="d",
                    adjustflag="2", fields=None, progress_callback=None):
@@ -53,7 +68,7 @@ class StockDataLoader:
         if progress_callback:
             progress_callback(f"正在下载 {stock_code} 数据 ({start_date} ~ {end_date})...")
 
-        rs = bs.query_history_k_data_plus(
+        rs = _import_baostock().query_history_k_data_plus(
             stock_code,
             fields,
             start_date=start_date,
