@@ -39,10 +39,11 @@ class StockTrainer:
         config = self._get_model_config(params)
         self.model_type = config["model_type"]
         self.model_config = config
+        model_kwargs = {k: v for k, v in config.items() if k not in ("model_type", "input_size")}
         self.model = build_model(
             config["model_type"],
             config["input_size"],
-            **config,
+            **model_kwargs,
         ).to(self.device)
         return self.model
 
@@ -87,7 +88,7 @@ class StockTrainer:
             criterion = nn.MSELoss()
 
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, mode="min", factor=0.5, patience=5, verbose=False
+            optimizer, mode="min", factor=0.5, patience=5
         )
 
         self.train_losses = []
@@ -226,10 +227,11 @@ class StockTrainer:
         self.train_losses = checkpoint.get("train_losses", [])
         self.val_losses = checkpoint.get("val_losses", [])
 
+        model_kwargs = {k: v for k, v in self.model_config.items() if k not in ("model_type", "input_size")}
         self.model = build_model(
             self.model_type,
             self.model_config["input_size"],
-            **self.model_config,
+            **model_kwargs,
         ).to(self.device)
         self.model.load_state_dict(checkpoint["model_state_dict"])
 
