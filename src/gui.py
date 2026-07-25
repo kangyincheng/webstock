@@ -540,8 +540,8 @@ class StockApp:
             self._log(f"测试集 MAE:  {mae:.4f}")
             self._log(f"测试集 MAPE: {mape:.2f}%")
 
-            last_actual = y_test_actual[-1][0] if y_test_actual.ndim > 0 else y_test_actual[-1]
-            last_pred = test_pred_actual[-1][0] if test_pred_actual.ndim > 0 else test_pred_actual[-1]
+            last_actual = float(np.array(y_test_actual).flatten()[-1])
+            last_pred = float(np.array(test_pred_actual).flatten()[-1])
             self._log(f"最后一日实际收盘价: {last_actual:.2f}, 预测: {last_pred:.2f}")
 
             self._set_progress(100, "完成")
