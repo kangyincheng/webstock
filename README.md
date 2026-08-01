@@ -1,18 +1,19 @@
-# mystock - A股收盘价预测系统
+# mystock - A股收盘价预测系统（PyTorch + TensorFlow 双框架）
 
-基于 PyTorch + Baostock + Tkinter 的 A 股个股收盘价预测分析工具。
+基于 PyTorch / TensorFlow + Baostock/Tushare + Tkinter 的 A 股个股收盘价预测分析工具。
 
 ## 功能特点
 
 - **钉钉式主界面**：左侧深色可视化导航栏（图标 + 文字菜单），点击切换右侧内容区
-- **股票预测模块**：原 A 股预测功能挂在「工作台 → 股票预测」菜单下
+- **pytorch股票预测**：原 PyTorch 版 A 股预测功能（LSTM/GRU/Transformer）
+- **tensorflow股票预测**：新增 TensorFlow Keras 版 A 股预测，模型、参数、图表与 PyTorch 版完全对齐，便于横向对比
 - **可扩展菜单**：内置「数据看板 / 消息 / 通讯录 / 设置」占位模块，便于后续扩展
-- **数据获取**：通过 Baostock 获取 A 股历史行情数据，支持多种复权方式和频率
-- **模型选择**：支持 LSTM、GRU、Transformer 三种模型架构
+- **数据获取**：通过 Baostock 获取 A 股历史行情数据，Tushare 用于板块热度/热门股票
+- **模型选择**：两套框架均支持 LSTM、GRU、Transformer 三种模型架构
 - **可调参数**：所有关键参数均可在界面中调整
 - **实时进度**：训练过程实时显示损失变化和进度条
 - **图表展示**：Matplotlib 绘制预测值与实际值对比图
-- **模型持久化**：模型可保存和加载，下次直接调用
+- **模型持久化**：模型可保存和加载（PyTorch=.pth，TensorFlow=.keras），下次直接调用
 
 ## 主界面布局
 
@@ -39,8 +40,9 @@
 
 - 左侧导航栏：深色背景，按「工作台 / 协作 / 系统」分组，每项带 emoji 图标 + 文字
 - **菜单支持父子层级**：父菜单右侧带 ▶/▼ 箭头，点击展开/收起子菜单
-- 「股票」父菜单下挂 5 个子菜单：
-  - **股票预测**：原 StockApp 功能（A 股收盘价预测）
+- 「股票」父菜单下挂 6 个子菜单：
+  - **pytorch股票预测**：原 PyTorch 版 StockApp 功能（A 股收盘价预测，LSTM/GRU/Transformer）
+  - **tensorflow股票预测**：TensorFlow Keras 版，参数/模型/图表与 PyTorch 版完全对齐，便于对比
   - **ST股票表现**：扫描最近 N 个月内摘帽的 ST 股（baostock 数据源，支持按代码/名称筛选 + 列头点击排序）
   - **自选股**：本地管理自选股（买入日期/买入价/当前价/收益/备注/事件到期提醒，baostock 刷新行情，到期行红色高亮 + 弹框）
   - **板块热度**：按行业聚合当日板块热度榜（tushare 数据源，平均涨幅/总成交额/上涨下跌家数/涨停家数）
@@ -93,16 +95,19 @@ python main.py
 ```
 mystock/
 ├── main.py              # 入口文件
-├── requirements.txt     # 依赖列表
+├── requirements.txt     # 依赖列表（PyTorch + TensorFlow 双框架）
 ├── tushare_token.txt    # Tushare token（⚠️ 已加入 .gitignore，不提交）
 ├── data/                # 数据缓存（已加入 .gitignore）
-├── models/              # 模型保存
+├── models/              # 模型保存（.pth 为 PyTorch，.keras 为 TensorFlow）
 └── src/
     ├── __init__.py
-    ├── data_loader.py        # 数据加载与预处理（baostock）
-    ├── model.py             # PyTorch 模型定义
-    ├── trainer.py           # 训练与预测
-    ├── gui.py               # 股票预测界面（StockApp，可嵌入主窗口）
+    ├── data_loader.py        # 数据加载与预处理（baostock，双框架共用）
+    ├── model.py             # PyTorch 模型（LSTM/GRU/Transformer）
+    ├── trainer.py           # PyTorch 训练与预测
+    ├── gui.py               # PyTorch 版 GUI（pytorch股票预测）
+    ├── tf_model.py          # TensorFlow Keras 模型（LSTM/GRU/Transformer）
+    ├── tf_trainer.py        # TensorFlow 训练与预测
+    ├── tf_gui.py            # TensorFlow 版 GUI（tensorflow股票预测）
     ├── main_window.py       # 钉钉式主窗口（左侧导航 + 右侧内容区）
     ├── st_analyzer.py       # ST 摘帽识别 + 涨幅计算（baostock）
     ├── st_page.py           # ST股票表现页面（筛选 + 排序 + 导出）

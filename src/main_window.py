@@ -168,7 +168,8 @@ class MainWindow:
     MENU_GROUPS = [
         ("工作台", [
             {"type": "parent", "key": "stock", "label": "股票", "icon": "📈", "children": [
-                {"key": "stock_predict", "label": "股票预测"},
+                {"key": "stock_predict", "label": "pytorch股票预测"},
+                {"key": "stock_predict_tf", "label": "tensorflow股票预测"},
                 {"key": "st_performance", "label": "ST股票表现"},
                 {"key": "favorite_stocks", "label": "自选股"},
                 {"key": "sector_heat", "label": "板块热度"},
@@ -269,7 +270,7 @@ class MainWindow:
             for entry in items:
                 self._render_menu_entry(menu_holder, entry)
 
-        # 默认展开「股票」父菜单并选中「股票预测」
+        # 默认展开「股票」父菜单并选中「pytorch股票预测」
         if "stock" in self._nav_parents:
             self._nav_parents["stock"].set_expanded(True)
             self._show_sub_container("stock", True)
@@ -368,6 +369,8 @@ class MainWindow:
 
         if key == "stock_predict":
             page = self._build_stock_page()
+        elif key == "stock_predict_tf":
+            page = self._build_stock_page_tf()
         elif key == "st_performance":
             page = self._build_st_performance_page()
         elif key == "sector_heat":
@@ -384,10 +387,17 @@ class MainWindow:
 
     # ---------------- 各页面构造 ----------------
     def _build_stock_page(self):
-        """股票预测：挂载原 StockApp（embedded 模式）。"""
+        """pytorch 股票预测：挂载原 StockApp（embedded 模式）。"""
         from .gui import StockApp
         page = tk.Frame(self._content, bg=COLOR_CONTENT_BG)
         self._stock_app = StockApp(page, embedded=True)
+        return page
+
+    def _build_stock_page_tf(self):
+        """tensorflow 股票预测：挂载 StockAppTF（embedded 模式）。"""
+        from .tf_gui import StockAppTF
+        page = tk.Frame(self._content, bg=COLOR_CONTENT_BG)
+        StockAppTF(page, embedded=True)
         return page
 
     def _build_st_performance_page(self):

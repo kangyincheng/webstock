@@ -29,4 +29,10 @@ def __getattr__(name):
     if name == "TushareClient":
         from .market_data import TushareClient
         return TushareClient
+    if name == "StockAppTF":
+        from .tf_gui import StockAppTF
+        return StockAppTF
+    if name == "TFStockTrainer":
+        from .tf_trainer import TFStockTrainer
+        return TFStockTrainer
     raise AttributeError(f"module 'src' has no attribute {name!r}")
