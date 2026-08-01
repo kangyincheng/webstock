@@ -23,6 +23,9 @@ def __getattr__(name):
     if name == "HotStocksPage":
         from .hot_stocks_page import HotStocksPage
         return HotStocksPage
+    if name == "FavoriteStocksPage":
+        from .favorite_stocks_page import FavoriteStocksPage
+        return FavoriteStocksPage
     if name == "TushareClient":
         from .market_data import TushareClient
         return TushareClient
