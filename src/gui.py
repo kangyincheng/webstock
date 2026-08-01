@@ -20,11 +20,24 @@ matplotlib.rcParams["axes.unicode_minus"] = False
 
 
 class StockApp:
-    def __init__(self, root):
+    """A 股收盘价预测系统主界面。
+
+    两种使用方式：
+      1. 作为独立窗口：StockApp(root)   —— root 为 tk.Tk()
+      2. 作为嵌入组件：StockApp(parent, embedded=True)  —— parent 为父 Frame
+    嵌入模式下跳过 title/geometry 设置，便于挂到主窗口的内容区。
+    """
+
+    def __init__(self, root, embedded=False):
         self.root = root
-        self.root.title("mystock - A股收盘价预测系统")
-        self.root.geometry("1400x900")
-        self.root.minsize(1200, 800)
+        # 仅在独立窗口模式下设置窗口级属性；嵌入模式由父容器决定布局
+        if not embedded:
+            try:
+                self.root.title("mystock - A股收盘价预测系统")
+                self.root.geometry("1400x900")
+                self.root.minsize(1200, 800)
+            except Exception:
+                pass
 
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         self.data_loader = StockDataLoader(data_dir=os.path.join(base_dir, "data"))
@@ -653,6 +666,8 @@ class StockApp:
 
 
 def main():
+    # 启动钉钉式主窗口；StockApp 作为「股票预测」模块挂在左侧菜单下
+    from .main_window import MainWindow
     root = tk.Tk()
     try:
         style = ttk.Style()
@@ -660,7 +675,7 @@ def main():
             style.theme_use("clam")
     except Exception:
         pass
-    app = StockApp(root)
+    app = MainWindow(root)
     root.mainloop()
 
 
