@@ -169,6 +169,7 @@ class MainWindow:
         ("工作台", [
             {"type": "parent", "key": "stock", "label": "股票", "icon": "📈", "children": [
                 {"key": "stock_predict", "label": "股票预测"},
+                {"key": "st_performance", "label": "ST股票表现"},
             ]},
             {"type": "item", "key": "dashboard", "label": "数据看板", "icon": "📊"},
         ]),
@@ -364,6 +365,8 @@ class MainWindow:
 
         if key == "stock_predict":
             page = self._build_stock_page()
+        elif key == "st_performance":
+            page = self._build_st_performance_page()
         else:
             page = self._build_placeholder_page(key)
         if page is not None:
@@ -376,6 +379,13 @@ class MainWindow:
         from .gui import StockApp
         page = tk.Frame(self._content, bg=COLOR_CONTENT_BG)
         self._stock_app = StockApp(page, embedded=True)
+        return page
+
+    def _build_st_performance_page(self):
+        """ST股票表现：挂载 STPerformancePage（参数输入 + 结果表格）。"""
+        from .st_page import STPerformancePage
+        page = tk.Frame(self._content, bg=COLOR_CONTENT_BG)
+        STPerformancePage(page)
         return page
 
     def _build_placeholder_page(self, key):
