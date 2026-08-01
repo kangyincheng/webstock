@@ -41,10 +41,10 @@
 - **菜单支持父子层级**：父菜单右侧带 ▶/▼ 箭头，点击展开/收起子菜单
 - 「股票」父菜单下挂 5 个子菜单：
   - **股票预测**：原 StockApp 功能（A 股收盘价预测）
-  - **ST股票表现**：扫描最近 N 个月内摘帽的 ST 股（支持按代码/名称筛选 + 列头点击排序）
+  - **ST股票表现**：扫描最近 N 个月内摘帽的 ST 股（baostock 数据源，支持按代码/名称筛选 + 列头点击排序）
   - **自选股**：占位（预留后续开发）
-  - **板块热度**：占位（预留后续开发）
-  - **热门股票**：占位（预留后续开发）
+  - **板块热度**：按行业聚合当日板块热度榜（tushare 数据源，平均涨幅/总成交额/上涨下跌家数/涨停家数）
+  - **热门股票**：按涨幅/成交额/成交量排序取 TOP N 热门股票（tushare 数据源，支持筛选 + 列头排序）
 - 其它菜单为占位页，预留扩展
 
 ## 安装依赖
@@ -94,18 +94,37 @@ python main.py
 mystock/
 ├── main.py              # 入口文件
 ├── requirements.txt     # 依赖列表
-├── data/                # 数据缓存
+├── tushare_token.txt    # Tushare token（⚠️ 已加入 .gitignore，不提交）
+├── data/                # 数据缓存（已加入 .gitignore）
 ├── models/              # 模型保存
 └── src/
     ├── __init__.py
-    ├── data_loader.py   # 数据加载与预处理
-    ├── model.py         # PyTorch 模型定义
-    ├── trainer.py       # 训练与预测
-    ├── gui.py           # 股票预测界面（StockApp，可嵌入主窗口）
-    ├── main_window.py   # 钉钉式主窗口（左侧导航 + 右侧内容区）
-    ├── st_analyzer.py   # ST 摘帽识别 + 涨幅计算
-    └── st_page.py       # ST股票表现页面（参数 + 表格 + 导出）
+    ├── data_loader.py        # 数据加载与预处理（baostock）
+    ├── model.py             # PyTorch 模型定义
+    ├── trainer.py           # 训练与预测
+    ├── gui.py               # 股票预测界面（StockApp，可嵌入主窗口）
+    ├── main_window.py       # 钉钉式主窗口（左侧导航 + 右侧内容区）
+    ├── st_analyzer.py       # ST 摘帽识别 + 涨幅计算（baostock）
+    ├── st_page.py           # ST股票表现页面（筛选 + 排序 + 导出）
+    ├── market_data.py       # Tushare 行情客户端（token 加载 + 缓存）
+    ├── sector_heat_page.py  # 板块热度页面（按行业聚合）
+    └── hot_stocks_page.py   # 热门股票页面（TOP N + 筛选 + 排序）
 ```
+
+## Tushare Token 配置
+
+「板块热度」与「热门股票」模块使用 tushare 数据源，需配置 token：
+
+1. 在 [tushare.pro](https://tushare.pro/) 注册并获取 token
+2. 在项目根目录创建文件 `tushare_token.txt`，把 token 写入第一行
+   （该文件已被 `.gitignore` 排除，**不会被提交到 git**）
+3. 或设置环境变量 `TUSHARE_TOKEN`
+4. 重启程序，进入「股票 → 板块热度 / 热门股票」点击「加载」即可
+
+tushare 接口权限说明：
+- ✅ `pro.daily`：按交易日拉全市场日线行情
+- ✅ `pro.stock_basic`：股票基本信息（含 industry 字段）
+- ❌ `pro.top_list`（龙虎榜）、`pro.index_classify`（指数分类）：需更高积分权限
 
 ## ST股票表现模块
 

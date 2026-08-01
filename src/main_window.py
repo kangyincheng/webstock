@@ -370,6 +370,10 @@ class MainWindow:
             page = self._build_stock_page()
         elif key == "st_performance":
             page = self._build_st_performance_page()
+        elif key == "sector_heat":
+            page = self._build_sector_heat_page()
+        elif key == "hot_stocks":
+            page = self._build_hot_stocks_page()
         else:
             page = self._build_placeholder_page(key)
         if page is not None:
@@ -389,6 +393,20 @@ class MainWindow:
         from .st_page import STPerformancePage
         page = tk.Frame(self._content, bg=COLOR_CONTENT_BG)
         STPerformancePage(page)
+        return page
+
+    def _build_sector_heat_page(self):
+        """板块热度：挂载 SectorHeatPage（按行业聚合板块热度榜）。"""
+        from .sector_heat_page import SectorHeatPage
+        page = tk.Frame(self._content, bg=COLOR_CONTENT_BG)
+        SectorHeatPage(page)
+        return page
+
+    def _build_hot_stocks_page(self):
+        """热门股票：挂载 HotStocksPage（按涨幅/成交额/成交量排序）。"""
+        from .hot_stocks_page import HotStocksPage
+        page = tk.Frame(self._content, bg=COLOR_CONTENT_BG)
+        HotStocksPage(page)
         return page
 
     def _build_placeholder_page(self, key):
@@ -428,7 +446,8 @@ class MainWindow:
             "message": "• 预测完成通知\n• 模型异常告警\n• 与团队成员协作",
             "contact": "• 策略共享\n• 团队成员列表\n• 权限管理",
             "settings": "• 数据源配置\n• 主题切换\n• 缓存清理",
-            "stock": "• 股票预测（已在子菜单中）\n• 自选股管理\n• 板块热度",
+            "stock": "• 股票预测（已在子菜单中）\n• ST 股票表现\n• 板块热度 / 热门股票",
+            "favorite_stocks": "• 本地自选股管理\n• 加自选 / 删自选\n• 一键跳转预测",
         }.get(key, "• 即将上线")
         tk.Label(
             card, text=tips, font=("Microsoft YaHei UI", 10),

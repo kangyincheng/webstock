@@ -1,21 +1,31 @@
+# === 凭证 / 敏感文件（绝不提交） ===
+tushare_token.txt
+.env
+*.env
+config/tushare_token.txt
+
+# === Python ===
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
-.Python
+*.py[cod]
+*$py.class
 *.so
-*.egg-info/
-dist/
+.Python
 build/
-.eggs/
+dist/
+*.egg-info/
+.venv/
+venv/
+env/
 
+# === 数据与缓存 ===
 data/
+data_cache/
+*.csv
+!requirements.txt
 models/
-*.pth
-*.pt
 
+# === IDE / OS ===
 .idea/
 .vscode/
-*.swp
-*.swo
 .DS_Store
+Thumbs.db

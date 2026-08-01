@@ -17,4 +17,13 @@ def __getattr__(name):
     if name == "STPerformancePage":
         from .st_page import STPerformancePage
         return STPerformancePage
+    if name == "SectorHeatPage":
+        from .sector_heat_page import SectorHeatPage
+        return SectorHeatPage
+    if name == "HotStocksPage":
+        from .hot_stocks_page import HotStocksPage
+        return HotStocksPage
+    if name == "TushareClient":
+        from .market_data import TushareClient
+        return TushareClient
     raise AttributeError(f"module 'src' has no attribute {name!r}")

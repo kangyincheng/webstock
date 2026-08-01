@@ -4,3 +4,4 @@ pandas>=2.0.0
 baostock>=0.8.8
 scikit-learn>=1.2.0
 matplotlib>=3.7.0
+tushare>=1.4.0
