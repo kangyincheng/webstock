@@ -170,6 +170,9 @@ class MainWindow:
             {"type": "parent", "key": "stock", "label": "股票", "icon": "📈", "children": [
                 {"key": "stock_predict", "label": "股票预测"},
                 {"key": "st_performance", "label": "ST股票表现"},
+                {"key": "favorite_stocks", "label": "自选股"},
+                {"key": "sector_heat", "label": "板块热度"},
+                {"key": "hot_stocks", "label": "热门股票"},
             ]},
             {"type": "item", "key": "dashboard", "label": "数据看板", "icon": "📊"},
         ]),
