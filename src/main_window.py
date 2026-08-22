@@ -17,6 +17,7 @@
 - 其它菜单：占位页面，留作后续扩展（钉钉式工作台/消息/通讯录/数据看板/设置）
 """
 
+import threading
 import tkinter as tk
 from tkinter import ttk
 
@@ -34,6 +35,12 @@ COLOR_TOPBAR_BG = "#FFFFFF"      # 顶部标题栏背景
 COLOR_TOPBAR_BORDER = "#E5E6EB"
 COLOR_CONTENT_BG = "#F5F6F7"      # 右侧内容区背景
 COLOR_SUB_INDENT = "#37393E"      # 子菜单项背景（略深，体现层级）
+
+# 市场温度计档位颜色
+COLOR_THERM_HOT = "#F5222D"       # >=80% 红
+COLOR_THERM_COLD = "#52C41A"      # <=20% 绿
+COLOR_THERM_NORMAL = "#1677FF"    # 其它 蓝
+COLOR_THERM_IDLE = "#C8CCD2"      # 初始/计算中 灰
 
 
 class NavItem(tk.Frame):
@@ -202,7 +209,13 @@ class MainWindow:
         self._current_key = None
         self._stock_app = None
 
+        # 市场温度计状态
+        self._thermometer_running = False
+
         self._build_layout()
+
+        # 启动后异步刷新一次温度计
+        self.root.after(800, self._refresh_thermometer)
 
     # ---------------- 布局 ----------------
     def _build_layout(self):
@@ -226,10 +239,86 @@ class MainWindow:
             topbar, textvariable=self._topbar_module_var,
             font=("Microsoft YaHei UI", 11),
             bg=COLOR_TOPBAR_BG, fg="#4E5969").pack(side=tk.LEFT, padx=8)
+
+        # 右侧：用户名（最右）
         tk.Label(
             topbar, text="jeoj", font=("Microsoft YaHei UI", 10),
             bg=COLOR_TOPBAR_BG, fg="#86909C").pack(side=tk.RIGHT, padx=20)
+
+        # 右侧：市场温度计（刷新按钮 + 数值 + 温度框，按从右到左依次 pack）
+        self._btn_therm_refresh = tk.Button(
+            topbar, text="⟳", command=self._refresh_thermometer,
+            bg=COLOR_TOPBAR_BG, fg="#4E5969", relief="flat",
+            activebackground="#F2F3F5", activeforeground="#1F2329",
+            font=("Microsoft YaHei UI", 12),
+            padx=6, pady=0, cursor="hand2", bd=0)
+        self._btn_therm_refresh.pack(side=tk.RIGHT, padx=(0, 12))
+
+        self._therm_value_var = tk.StringVar(value="--")
+        tk.Label(
+            topbar, textvariable=self._therm_value_var,
+            font=("Microsoft YaHei UI", 11, "bold"),
+            bg=COLOR_TOPBAR_BG, fg="#1F2329").pack(side=tk.RIGHT, padx=(4, 0))
+
+        # 温度框：带档位背景色的小色块，显示 🌡️ 图标
+        self._therm_box = tk.Label(
+            topbar, text=" 🌡️ 股票温度计 ",
+            font=("Microsoft YaHei UI", 10, "bold"),
+            bg=COLOR_THERM_IDLE, fg="#FFFFFF")
+        self._therm_box.pack(side=tk.RIGHT, padx=(0, 4), pady=12)
+
         tk.Frame(self.root, bg=COLOR_TOPBAR_BORDER, height=1).pack(fill=tk.X)
+
+    # ---------------- 市场温度计 ----------------
+    def _refresh_thermometer(self):
+        """手动或启动时触发：后台线程计算 20 日均线上方股票占比。"""
+        if self._thermometer_running:
+            return
+        self._thermometer_running = True
+        self._btn_therm_refresh.config(state="disabled")
+        self._therm_box.config(bg=COLOR_THERM_IDLE)
+        self._therm_value_var.set("计算中...")
+        t = threading.Thread(target=self._thermometer_thread, daemon=True)
+        t.start()
+
+    def _thermometer_thread(self):
+        from .market_thermometer import MarketThermometerAnalyzer
+        try:
+            az = MarketThermometerAnalyzer()
+            result = az.compute(progress_callback=None)
+        except Exception as e:
+            self.root.after(0, lambda: self._therm_value_var.set(f"错误: {e}"))
+            self.root.after(0, self._thermometer_done)
+            return
+        self.root.after(0, lambda: self._apply_thermometer_result(result))
+
+    def _apply_thermometer_result(self, result):
+        """在主线程更新温度计 UI。"""
+        if result is None:
+            self._therm_box.config(bg=COLOR_THERM_IDLE)
+            self._therm_value_var.set("无数据")
+        else:
+            level = result.get("level")
+            if level == "hot":
+                color = COLOR_THERM_HOT
+            elif level == "cold":
+                color = COLOR_THERM_COLD
+            else:
+                color = COLOR_THERM_NORMAL
+            self._therm_box.config(bg=color)
+            percent = result["percent"]
+            above = result["above_count"]
+            total = result["total"]
+            ma_days = result["ma_days"]
+            self._therm_value_var.set(f"{percent}%  ({above}/{total} 在 {ma_days}日均线上方)")
+        self._thermometer_done()
+
+    def _thermometer_done(self):
+        self._thermometer_running = False
+        try:
+            self._btn_therm_refresh.config(state="normal")
+        except Exception:
+            pass
 
     def _build_sidebar(self, parent):
         sidebar = tk.Frame(parent, bg=COLOR_NAV_BG, width=200)
