@@ -183,6 +183,10 @@ class MainWindow:
                 {"key": "sector_heat", "label": "板块热度"},
                 {"key": "hot_stocks", "label": "热门股票"},
             ]},
+            {"type": "parent", "key": "cbond", "label": "可转债", "icon": "🔖", "children": [
+                {"key": "cbond_ipo", "label": "打新上市"},
+                {"key": "cbond_review", "label": "转债发审"},
+            ]},
             {"type": "item", "key": "dashboard", "label": "数据看板", "icon": "📊"},
         ]),
         ("协作", [
@@ -478,6 +482,10 @@ class MainWindow:
             page = self._build_hot_stocks_page()
         elif key == "favorite_stocks":
             page = self._build_favorite_stocks_page()
+        elif key == "cbond_ipo":
+            page = self._build_cbond_ipo_page()
+        elif key == "cbond_review":
+            page = self._build_cbond_review_page()
         else:
             page = self._build_placeholder_page(key)
         if page is not None:
@@ -534,6 +542,20 @@ class MainWindow:
         FavoriteStocksPage(page)
         return page
 
+    def _build_cbond_ipo_page(self):
+        """可转债打新上市：当日可申购 + 当日上市两个表格。"""
+        from .cbond_ipo_page import CBondIpoPage
+        page = tk.Frame(self._content, bg=COLOR_CONTENT_BG)
+        CBondIpoPage(page)
+        return page
+
+    def _build_cbond_review_page(self):
+        """可转债发审进度：含发审阶段筛选 + 关键字筛选 + 排序。"""
+        from .cbond_review_page import CBondReviewPage
+        page = tk.Frame(self._content, bg=COLOR_CONTENT_BG)
+        CBondReviewPage(page)
+        return page
+
     def _build_placeholder_page(self, key):
         """占位页面（钉钉式空状态：图标 + 标题 + 提示）。"""
         label = self._find_label(key) or key
@@ -543,6 +565,9 @@ class MainWindow:
             "contact": "👥",
             "settings": "⚙️",
             "stock": "📈",
+            "cbond": "🔖",
+            "cbond_ipo": "📋",
+            "cbond_review": "📑",
         }
         icon = icon_map.get(key, "📦")
         page = tk.Frame(self._content, bg=COLOR_CONTENT_BG)
