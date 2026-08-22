@@ -323,8 +323,13 @@ class MainWindow:
         if sub is None:
             return
         if show:
-            # 在父菜单项之后插入显示
-            sub.pack(fill=tk.X, padx=8, pady=0)
+            # 用 after= 确保子菜单紧跟在父菜单项之后，
+            # 避免 pack 重新插入时跑到菜单列表末尾导致顺序错乱
+            parent_item = self._nav_parents.get(parent_key)
+            if parent_item is not None:
+                sub.pack(fill=tk.X, padx=8, pady=0, after=parent_item)
+            else:
+                sub.pack(fill=tk.X, padx=8, pady=0)
         else:
             sub.pack_forget()
 
