@@ -171,6 +171,7 @@ class MainWindow:
                 {"key": "stock_predict", "label": "pytorch股票预测"},
                 {"key": "stock_predict_tf", "label": "tensorflow股票预测"},
                 {"key": "st_performance", "label": "ST股票表现"},
+                {"key": "st_reinstate", "label": "ST股票转正"},
                 {"key": "favorite_stocks", "label": "自选股"},
                 {"key": "sector_heat", "label": "板块热度"},
                 {"key": "hot_stocks", "label": "热门股票"},
@@ -208,8 +209,10 @@ class MainWindow:
         self._build_topbar()
         body = tk.Frame(self.root, bg=COLOR_CONTENT_BG)
         body.pack(fill=tk.BOTH, expand=True)
-        self._build_sidebar(body)
+        # 先建内容区，再建侧边栏：侧边栏末尾会触发默认菜单选中并渲染页面，
+        # 此时 _content 必须已存在
         self._build_content(body)
+        self._build_sidebar(body)
 
     def _build_topbar(self):
         topbar = tk.Frame(self.root, bg=COLOR_TOPBAR_BG, height=56)
@@ -373,6 +376,8 @@ class MainWindow:
             page = self._build_stock_page_tf()
         elif key == "st_performance":
             page = self._build_st_performance_page()
+        elif key == "st_reinstate":
+            page = self._build_st_reinstate_page()
         elif key == "sector_heat":
             page = self._build_sector_heat_page()
         elif key == "hot_stocks":
@@ -405,6 +410,13 @@ class MainWindow:
         from .st_page import STPerformancePage
         page = tk.Frame(self._content, bg=COLOR_CONTENT_BG)
         STPerformancePage(page)
+        return page
+
+    def _build_st_reinstate_page(self):
+        """ST股票转正：挂载 STReinstatePage（ST 起始/转正日期 + 行情估值指标）。"""
+        from .st_reinstate_page import STReinstatePage
+        page = tk.Frame(self._content, bg=COLOR_CONTENT_BG)
+        STReinstatePage(page)
         return page
 
     def _build_sector_heat_page(self):

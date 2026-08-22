@@ -1,38 +1,35 @@
-from .data_loader import StockDataLoader
-from .model import StockLSTM, StockTransformer
-from .trainer import StockTrainer
+"""mystock 源码包。
+
+顶层模块采用懒加载：data_loader / model / trainer / gui 等较重或带可选依赖
+（torch / tensorflow / baostock）的子模块仅在真正访问时才 import，
+确保 numpy / sklearn / torch 等任一缺失时，主窗口仍可启动。
+"""
 
 
 def __getattr__(name):
-    """懒加载较重或可选的子模块，避免 numpy/baostock 缺失时整个包无法导入。"""
-    if name == "STAnalyzer":
-        from .st_analyzer import STAnalyzer
-        return STAnalyzer
-    if name == "MainWindow":
-        from .main_window import MainWindow
-        return MainWindow
-    if name == "StockApp":
-        from .gui import StockApp
-        return StockApp
-    if name == "STPerformancePage":
-        from .st_page import STPerformancePage
-        return STPerformancePage
-    if name == "SectorHeatPage":
-        from .sector_heat_page import SectorHeatPage
-        return SectorHeatPage
-    if name == "HotStocksPage":
-        from .hot_stocks_page import HotStocksPage
-        return HotStocksPage
-    if name == "FavoriteStocksPage":
-        from .favorite_stocks_page import FavoriteStocksPage
-        return FavoriteStocksPage
-    if name == "TushareClient":
-        from .market_data import TushareClient
-        return TushareClient
-    if name == "StockAppTF":
-        from .tf_gui import StockAppTF
-        return StockAppTF
-    if name == "TFStockTrainer":
-        from .tf_trainer import TFStockTrainer
-        return TFStockTrainer
+    """懒加载子模块，避免 torch/baostock 等缺失时整个包无法导入。"""
+    _LAZY = {
+        "StockDataLoader": ".data_loader",
+        "StockLSTM": ".model",
+        "StockGRU": ".model",
+        "StockTransformer": ".model",
+        "StockTrainer": ".trainer",
+        "StockApp": ".gui",
+        "STAnalyzer": ".st_analyzer",
+        "STPerformancePage": ".st_page",
+        "STReinstateAnalyzer": ".st_reinstate_analyzer",
+        "STReinstatePage": ".st_reinstate_page",
+        "MainWindow": ".main_window",
+        "SectorHeatPage": ".sector_heat_page",
+        "HotStocksPage": ".hot_stocks_page",
+        "FavoriteStocksPage": ".favorite_stocks_page",
+        "TushareClient": ".market_data",
+        "StockAppTF": ".tf_gui",
+        "TFStockTrainer": ".tf_trainer",
+    }
+    if name in _LAZY:
+        import importlib
+        mod_name = _LAZY[name]
+        mod = importlib.import_module(mod_name, __name__)
+        return getattr(mod, name)
     raise AttributeError(f"module 'src' has no attribute {name!r}")
