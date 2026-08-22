@@ -187,6 +187,10 @@ class MainWindow:
                 {"key": "cbond_ipo", "label": "打新上市"},
                 {"key": "cbond_review", "label": "转债发审"},
             ]},
+            {"type": "parent", "key": "tender_offer", "label": "要约收购", "icon": "🎯", "children": [
+                {"key": "tender_a", "label": "A股要约"},
+                {"key": "tender_hk", "label": "港股要约"},
+            ]},
             {"type": "item", "key": "dashboard", "label": "数据看板", "icon": "📊"},
         ]),
         ("协作", [
@@ -486,6 +490,10 @@ class MainWindow:
             page = self._build_cbond_ipo_page()
         elif key == "cbond_review":
             page = self._build_cbond_review_page()
+        elif key == "tender_a":
+            page = self._build_tender_offer_page()
+        elif key == "tender_hk":
+            page = self._build_tender_offer_page(default_tab="hk")
         else:
             page = self._build_placeholder_page(key)
         if page is not None:
@@ -556,6 +564,16 @@ class MainWindow:
         CBondReviewPage(page)
         return page
 
+    def _build_tender_offer_page(self, default_tab="a"):
+        """要约收购：A 股要约 + 港股要约上下双表。
+
+        菜单「A股要约」default_tab='a'，「港股要约」default_tab='hk'。
+        """
+        from .tender_offer_page import TenderOfferPage
+        page = tk.Frame(self._content, bg=COLOR_CONTENT_BG)
+        TenderOfferPage(page, default_tab=default_tab)
+        return page
+
     def _build_placeholder_page(self, key):
         """占位页面（钉钉式空状态：图标 + 标题 + 提示）。"""
         label = self._find_label(key) or key
@@ -568,6 +586,9 @@ class MainWindow:
             "cbond": "🔖",
             "cbond_ipo": "📋",
             "cbond_review": "📑",
+            "tender_offer": "🎯",
+            "tender_a": "🇨🇳",
+            "tender_hk": "🇭🇰",
         }
         icon = icon_map.get(key, "📦")
         page = tk.Frame(self._content, bg=COLOR_CONTENT_BG)
