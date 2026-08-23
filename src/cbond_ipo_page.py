@@ -21,9 +21,10 @@
 """
 import os
 import threading
-import tkinter as tk
 from datetime import datetime
-from tkinter import ttk, scrolledtext, messagebox, filedialog
+from ._gui_compat import tk, ttk, scrolledtext, messagebox, filedialog, pick_cjk_font
+
+FONT = pick_cjk_font()
 
 import pandas as pd
 
@@ -79,10 +80,10 @@ LIST_DF_MAP = {
 def _setup_tree_style():
     style = ttk.Style()
     style.configure("Treeview.Heading",
-                    font=("Microsoft YaHei UI", 10, "bold"),
+                    font=(FONT, 10, "bold"),
                     background="#F2F3F5", foreground="#1F2329")
     style.configure("Treeview",
-                    font=("Microsoft YaHei UI", 10),
+                    font=(FONT, 10),
                     rowheight=26)
 
 
@@ -104,14 +105,14 @@ class CBondIpoPage:
     def _build_ui(self):
         title = tk.Label(
             self.parent, text="可转债打新上市",
-            font=("Microsoft YaHei UI", 14, "bold"),
+            font=(FONT, 14, "bold"),
             bg="#F5F6F7", fg="#1F2329", anchor="w")
         title.pack(fill=tk.X, padx=16, pady=(12, 4))
 
         subtitle = tk.Label(
             self.parent,
             text="查看当日可申购可转债与当日上市新可转债，含对应正股、转股价、溢价率等关键指标",
-            font=("Microsoft YaHei UI", 10),
+            font=(FONT, 10),
             bg="#F5F6F7", fg="#86909C", anchor="w")
         subtitle.pack(fill=tk.X, padx=16, pady=(0, 8))
 
@@ -135,7 +136,7 @@ class CBondIpoPage:
             row, text="刷新数据", command=self._on_refresh,
             bg="#1677FF", fg="white", relief="flat",
             activebackground="#4096FF", activeforeground="white",
-            font=("Microsoft YaHei UI", 10, "bold"),
+            font=(FONT, 10, "bold"),
             padx=14, pady=2, cursor="hand2")
         self.btn_refresh.pack(side=tk.LEFT, padx=(0, 8))
 
@@ -143,7 +144,7 @@ class CBondIpoPage:
             row, text="导出申购表", command=lambda: self._on_export("sub"),
             bg="#FFFFFF", fg="#1677FF", relief="flat",
             activebackground="#F2F3F5", activeforeground="#1677FF",
-            font=("Microsoft YaHei UI", 10),
+            font=(FONT, 10),
             padx=12, pady=2, cursor="hand2",
             highlightbackground="#1677FF", highlightthickness=1)
         self.btn_export_sub.pack(side=tk.LEFT, padx=(0, 8))
@@ -152,7 +153,7 @@ class CBondIpoPage:
             row, text="导出上市表", command=lambda: self._on_export("list"),
             bg="#FFFFFF", fg="#1677FF", relief="flat",
             activebackground="#F2F3F5", activeforeground="#1677FF",
-            font=("Microsoft YaHei UI", 10),
+            font=(FONT, 10),
             padx=12, pady=2, cursor="hand2",
             highlightbackground="#1677FF", highlightthickness=1)
         self.btn_export_list.pack(side=tk.LEFT)
@@ -162,7 +163,7 @@ class CBondIpoPage:
                         highlightbackground="#E5E6EB", highlightthickness=1)
         card.pack(fill=tk.X, padx=16, pady=4)
         tk.Label(card, text="进度日志", bg="#FFFFFF",
-                 font=("Microsoft YaHei UI", 10, "bold"),
+                 font=(FONT, 10, "bold"),
                  fg="#4E5969").pack(anchor="w", padx=12, pady=(8, 2))
         self.log_text = scrolledtext.ScrolledText(
             card, height=5, font=("Consolas", 9),
@@ -177,10 +178,10 @@ class CBondIpoPage:
         header = tk.Frame(card, bg="#FFFFFF")
         header.pack(fill=tk.X, padx=12, pady=(8, 0))
         tk.Label(header, text="📋 当日可申购可转债",
-                 bg="#FFFFFF", font=("Microsoft YaHei UI", 11, "bold"),
+                 bg="#FFFFFF", font=(FONT, 11, "bold"),
                  fg="#1677FF").pack(side=tk.LEFT)
         self.lbl_sub_count = tk.Label(header, text="", bg="#FFFFFF",
-                                      font=("Microsoft YaHei UI", 9),
+                                      font=(FONT, 9),
                                       fg="#86909C")
         self.lbl_sub_count.pack(side=tk.RIGHT)
         self._sub_tree = self._build_tree(card, SUB_COLUMNS, height=9)
@@ -193,10 +194,10 @@ class CBondIpoPage:
         header = tk.Frame(card, bg="#FFFFFF")
         header.pack(fill=tk.X, padx=12, pady=(8, 0))
         tk.Label(header, text="🎉 当日上市新可转债",
-                 bg="#FFFFFF", font=("Microsoft YaHei UI", 11, "bold"),
+                 bg="#FFFFFF", font=(FONT, 11, "bold"),
                  fg="#F5222D").pack(side=tk.LEFT)
         self.lbl_list_count = tk.Label(header, text="", bg="#FFFFFF",
-                                       font=("Microsoft YaHei UI", 9),
+                                       font=(FONT, 9),
                                        fg="#86909C")
         self.lbl_list_count.pack(side=tk.RIGHT)
         self._list_tree = self._build_tree(card, LIST_COLUMNS, height=7)

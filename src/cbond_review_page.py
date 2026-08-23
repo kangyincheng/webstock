@@ -19,9 +19,10 @@
 """
 import os
 import threading
-import tkinter as tk
 from datetime import datetime
-from tkinter import ttk, scrolledtext, messagebox, filedialog
+from ._gui_compat import tk, ttk, scrolledtext, messagebox, filedialog, pick_cjk_font
+
+FONT = pick_cjk_font()
 
 import pandas as pd
 
@@ -63,10 +64,10 @@ STAGE_ORDER = ["董事会预案", "股东大会通过", "发审委受理", "发�
 def _setup_tree_style():
     style = ttk.Style()
     style.configure("Treeview.Heading",
-                    font=("Microsoft YaHei UI", 10, "bold"),
+                    font=(FONT, 10, "bold"),
                     background="#F2F3F5", foreground="#1F2329")
     style.configure("Treeview",
-                    font=("Microsoft YaHei UI", 10),
+                    font=(FONT, 10),
                     rowheight=26)
 
 
@@ -96,14 +97,14 @@ class CBondReviewPage:
     def _build_ui(self):
         title = tk.Label(
             self.parent, text="可转债发审进度",
-            font=("Microsoft YaHei UI", 14, "bold"),
+            font=(FONT, 14, "bold"),
             bg="#F5F6F7", fg="#1F2329", anchor="w")
         title.pack(fill=tk.X, padx=16, pady=(12, 4))
 
         subtitle = tk.Label(
             self.parent,
             text="查看已向交易所提交发行申请的可转债，含发审阶段、审核进度、对应正股与估值指标",
-            font=("Microsoft YaHei UI", 10),
+            font=(FONT, 10),
             bg="#F5F6F7", fg="#86909C", anchor="w")
         subtitle.pack(fill=tk.X, padx=16, pady=(0, 8))
 
@@ -126,12 +127,12 @@ class CBondReviewPage:
             row, text="刷新数据", command=self._on_refresh,
             bg="#1677FF", fg="white", relief="flat",
             activebackground="#4096FF", activeforeground="white",
-            font=("Microsoft YaHei UI", 10, "bold"),
+            font=(FONT, 10, "bold"),
             padx=14, pady=2, cursor="hand2")
         self.btn_refresh.pack(side=tk.LEFT, padx=(0, 12))
 
         tk.Label(row, text="发审阶段：", bg="#FFFFFF",
-                 font=("Microsoft YaHei UI", 10)).pack(side=tk.LEFT, padx=(0, 4))
+                 font=(FONT, 10)).pack(side=tk.LEFT, padx=(0, 4))
         stage_opts = ["全部"] + STAGE_ORDER
         self.stage_combo = ttk.Combobox(
             row, textvariable=self.stage_filter_var,
@@ -143,7 +144,7 @@ class CBondReviewPage:
             row, text="导出 CSV", command=self._on_export,
             bg="#FFFFFF", fg="#1677FF", relief="flat",
             activebackground="#F2F3F5", activeforeground="#1677FF",
-            font=("Microsoft YaHei UI", 10),
+            font=(FONT, 10),
             padx=12, pady=2, cursor="hand2",
             highlightbackground="#1677FF", highlightthickness=1)
         self.btn_export.pack(side=tk.LEFT)
@@ -153,7 +154,7 @@ class CBondReviewPage:
                         highlightbackground="#E5E6EB", highlightthickness=1)
         card.pack(fill=tk.X, padx=16, pady=4)
         tk.Label(card, text="进度日志", bg="#FFFFFF",
-                 font=("Microsoft YaHei UI", 10, "bold"),
+                 font=(FONT, 10, "bold"),
                  fg="#4E5969").pack(anchor="w", padx=12, pady=(8, 2))
         self.log_text = scrolledtext.ScrolledText(
             card, height=5, font=("Consolas", 9),
@@ -169,11 +170,11 @@ class CBondReviewPage:
         row.pack(fill=tk.X, padx=16, pady=10)
 
         tk.Label(row, text="关键字（转债/正股代码或名称）：",
-                 bg="#FFFFFF", font=("Microsoft YaHei UI", 10),
+                 bg="#FFFFFF", font=(FONT, 10),
                  fg="#4E5969").pack(side=tk.LEFT, padx=(0, 6))
         entry = tk.Entry(
             row, textvariable=self.filter_var, width=36,
-            font=("Microsoft YaHei UI", 10),
+            font=(FONT, 10),
             bg="#FAFBFC", highlightbackground="#C8CCD2", highlightthickness=1,
             relief="flat")
         entry.pack(side=tk.LEFT, padx=(0, 8))
@@ -183,19 +184,19 @@ class CBondReviewPage:
             row, text="筛选", command=self._on_filter,
             bg="#1677FF", fg="white", relief="flat",
             activebackground="#4096FF", activeforeground="white",
-            font=("Microsoft YaHei UI", 10),
+            font=(FONT, 10),
             padx=12, pady=1, cursor="hand2").pack(side=tk.LEFT, padx=(0, 6))
 
         tk.Button(
             row, text="重置", command=self._on_reset_filter,
             bg="#FFFFFF", fg="#4E5969", relief="flat",
             activebackground="#F2F3F5", activeforeground="#1F2329",
-            font=("Microsoft YaHei UI", 10),
+            font=(FONT, 10),
             padx=12, pady=1, cursor="hand2",
             highlightbackground="#C8CCD2", highlightthickness=1).pack(side=tk.LEFT)
 
         self.filter_hint = tk.Label(row, text="", bg="#FFFFFF",
-                                    font=("Microsoft YaHei UI", 9), fg="#86909C")
+                                    font=(FONT, 9), fg="#86909C")
         self.filter_hint.pack(side=tk.LEFT, padx=12)
 
     def _build_table_card(self):
@@ -205,10 +206,10 @@ class CBondReviewPage:
         header = tk.Frame(card, bg="#FFFFFF")
         header.pack(fill=tk.X, padx=12, pady=(8, 2))
         tk.Label(header, text="可转债发审列表（点击列头可排序）",
-                 bg="#FFFFFF", font=("Microsoft YaHei UI", 10, "bold"),
+                 bg="#FFFFFF", font=(FONT, 10, "bold"),
                  fg="#4E5969").pack(side=tk.LEFT)
         self.lbl_count = tk.Label(header, text="", bg="#FFFFFF",
-                                  font=("Microsoft YaHei UI", 9),
+                                  font=(FONT, 9),
                                   fg="#86909C")
         self.lbl_count.pack(side=tk.RIGHT)
         self._build_tree(card)

@@ -17,9 +17,10 @@
 """
 import os
 import threading
-import tkinter as tk
 from datetime import datetime
-from tkinter import ttk, scrolledtext, messagebox
+from ._gui_compat import tk, ttk, scrolledtext, messagebox, pick_cjk_font
+
+FONT = pick_cjk_font()
 
 import pandas as pd
 
@@ -67,13 +68,13 @@ class SectorHeatPage:
     def _build_ui(self):
         tk.Label(
             self.parent, text="板块热度",
-            font=("Microsoft YaHei UI", 14, "bold"),
+            font=(FONT, 14, "bold"),
             bg="#F5F6F7", fg="#1F2329", anchor="w"
         ).pack(fill=tk.X, padx=16, pady=(12, 4))
         tk.Label(
             self.parent,
             text="按行业分组，统计当日平均涨幅 / 总成交额 / 上涨下跌家数 / 涨停家数",
-            font=("Microsoft YaHei UI", 10),
+            font=(FONT, 10),
             bg="#F5F6F7", fg="#86909C", anchor="w"
         ).pack(fill=tk.X, padx=16, pady=(0, 8))
 
@@ -84,9 +85,9 @@ class SectorHeatPage:
         row = tk.Frame(param_card, bg="#FFFFFF")
         row.pack(fill=tk.X, padx=16, pady=10)
         tk.Label(row, text="交易日（YYYYMMDD，留空=最近交易日）", bg="#FFFFFF",
-                 font=("Microsoft YaHei UI", 10)).pack(side=tk.LEFT, padx=(0, 6))
+                 font=(FONT, 10)).pack(side=tk.LEFT, padx=(0, 6))
         tk.Entry(row, textvariable=self.trade_date_var, width=14,
-                 font=("Microsoft YaHei UI", 10),
+                 font=(FONT, 10),
                  bg="#FAFBFC", relief="flat",
                  highlightbackground="#C8CCD2", highlightthickness=1
                  ).pack(side=tk.LEFT, padx=(0, 12))
@@ -95,21 +96,21 @@ class SectorHeatPage:
             row, text="加载", command=self._on_load,
             bg="#1677FF", fg="white", relief="flat",
             activebackground="#4096FF", activeforeground="white",
-            font=("Microsoft YaHei UI", 10, "bold"),
+            font=(FONT, 10, "bold"),
             padx=14, pady=2, cursor="hand2")
         self.btn_load.pack(side=tk.LEFT, padx=(0, 8))
 
         self.btn_refresh = tk.Button(
             row, text="刷新缓存", command=self._on_refresh,
             bg="#FFFFFF", fg="#1677FF", relief="flat",
-            font=("Microsoft YaHei UI", 10),
+            font=(FONT, 10),
             padx=12, pady=2, cursor="hand2",
             highlightbackground="#1677FF", highlightthickness=1)
         self.btn_refresh.pack(side=tk.LEFT, padx=(0, 8))
 
         self.status_hint = tk.Label(
             row, text="", bg="#FFFFFF",
-            font=("Microsoft YaHei UI", 9), fg="#86909C")
+            font=(FONT, 9), fg="#86909C")
         self.status_hint.pack(side=tk.LEFT, padx=12)
 
         # 进度日志
@@ -117,7 +118,7 @@ class SectorHeatPage:
                             highlightbackground="#E5E6EB", highlightthickness=1)
         log_card.pack(fill=tk.X, padx=16, pady=4)
         tk.Label(log_card, text="进度日志", bg="#FFFFFF",
-                 font=("Microsoft YaHei UI", 10, "bold"),
+                 font=(FONT, 10, "bold"),
                  fg="#4E5969").pack(anchor="w", padx=12, pady=(8, 2))
         self.log_text = scrolledtext.ScrolledText(
             log_card, height=5, font=("Consolas", 9),
@@ -130,7 +131,7 @@ class SectorHeatPage:
                               highlightbackground="#E5E6EB", highlightthickness=1)
         table_card.pack(fill=tk.BOTH, expand=True, padx=16, pady=(4, 16))
         tk.Label(table_card, text="板块热度榜（点击列头排序）", bg="#FFFFFF",
-                 font=("Microsoft YaHei UI", 10, "bold"),
+                 font=(FONT, 10, "bold"),
                  fg="#4E5969").pack(anchor="w", padx=12, pady=(8, 2))
         self._build_table(table_card)
 
@@ -145,10 +146,10 @@ class SectorHeatPage:
 
         style = ttk.Style()
         style.configure("Treeview.Heading",
-                        font=("Microsoft YaHei UI", 10, "bold"),
+                        font=(FONT, 10, "bold"),
                         background="#F2F3F5", foreground="#1F2329")
         style.configure("Treeview",
-                        font=("Microsoft YaHei UI", 10),
+                        font=(FONT, 10),
                         rowheight=28)
 
         columns = tuple(k for k, *_ in TREE_COLUMNS)

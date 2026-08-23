@@ -25,9 +25,10 @@ import json
 import os
 import threading
 import time
-import tkinter as tk
 from datetime import datetime, timedelta
-from tkinter import ttk, scrolledtext, messagebox, filedialog
+from ._gui_compat import tk, ttk, scrolledtext, messagebox, filedialog, pick_cjk_font
+
+FONT = pick_cjk_font()
 
 import pandas as pd
 
@@ -104,13 +105,13 @@ class FavoriteStocksPage:
     def _build_ui(self):
         tk.Label(
             self.parent, text="自选股",
-            font=("Microsoft YaHei UI", 14, "bold"),
+            font=(FONT, 14, "bold"),
             bg="#F5F6F7", fg="#1F2329", anchor="w"
         ).pack(fill=tk.X, padx=16, pady=(12, 4))
         tk.Label(
             self.parent,
             text="本地管理自选股：买入日期 / 买入价 / 当前价 / 收益 / 备注 / 事件到期提醒（红色高亮）",
-            font=("Microsoft YaHei UI", 10),
+            font=(FONT, 10),
             bg="#F5F6F7", fg="#86909C", anchor="w"
         ).pack(fill=tk.X, padx=16, pady=(0, 8))
 
@@ -124,42 +125,42 @@ class FavoriteStocksPage:
         tk.Button(row, text="添加自选股", command=self._on_add,
                   bg="#1677FF", fg="white", relief="flat",
                   activebackground="#4096FF", activeforeground="white",
-                  font=("Microsoft YaHei UI", 10, "bold"),
+                  font=(FONT, 10, "bold"),
                   padx=12, pady=2, cursor="hand2").pack(side=tk.LEFT, padx=(0, 8))
         tk.Button(row, text="编辑", command=self._on_edit,
                   bg="#FFFFFF", fg="#1677FF", relief="flat",
-                  font=("Microsoft YaHei UI", 10),
+                  font=(FONT, 10),
                   padx=12, pady=2, cursor="hand2",
                   highlightbackground="#1677FF", highlightthickness=1
                   ).pack(side=tk.LEFT, padx=(0, 8))
         tk.Button(row, text="删除", command=self._on_delete,
                   bg="#FFFFFF", fg="#CF1322", relief="flat",
-                  font=("Microsoft YaHei UI", 10),
+                  font=(FONT, 10),
                   padx=12, pady=2, cursor="hand2",
                   highlightbackground="#CF1322", highlightthickness=1
                   ).pack(side=tk.LEFT, padx=(0, 8))
         tk.Button(row, text="刷新行情", command=self._on_refresh_price,
                   bg="#FFFFFF", fg="#1677FF", relief="flat",
-                  font=("Microsoft YaHei UI", 10),
+                  font=(FONT, 10),
                   padx=12, pady=2, cursor="hand2",
                   highlightbackground="#1677FF", highlightthickness=1
                   ).pack(side=tk.LEFT, padx=(0, 8))
         tk.Button(row, text="立即检查到期", command=self._check_now,
                   bg="#FFFFFF", fg="#FA8C16", relief="flat",
-                  font=("Microsoft YaHei UI", 10),
+                  font=(FONT, 10),
                   padx=12, pady=2, cursor="hand2",
                   highlightbackground="#FA8C16", highlightthickness=1
                   ).pack(side=tk.LEFT, padx=(0, 8))
         tk.Button(row, text="导出 CSV", command=self._on_export,
                   bg="#FFFFFF", fg="#4E5969", relief="flat",
-                  font=("Microsoft YaHei UI", 10),
+                  font=(FONT, 10),
                   padx=12, pady=2, cursor="hand2",
                   highlightbackground="#C8CCD2", highlightthickness=1
                   ).pack(side=tk.LEFT, padx=(0, 8))
 
         self.status_hint = tk.Label(
             row, text="", bg="#FFFFFF",
-            font=("Microsoft YaHei UI", 9), fg="#86909C")
+            font=(FONT, 9), fg="#86909C")
         self.status_hint.pack(side=tk.LEFT, padx=12)
 
         # 进度日志
@@ -167,7 +168,7 @@ class FavoriteStocksPage:
                             highlightbackground="#E5E6EB", highlightthickness=1)
         log_card.pack(fill=tk.X, padx=16, pady=4)
         tk.Label(log_card, text="进度日志", bg="#FFFFFF",
-                 font=("Microsoft YaHei UI", 10, "bold"),
+                 font=(FONT, 10, "bold"),
                  fg="#4E5969").pack(anchor="w", padx=12, pady=(8, 2))
         self.log_text = scrolledtext.ScrolledText(
             log_card, height=5, font=("Consolas", 9),
@@ -187,25 +188,25 @@ class FavoriteStocksPage:
         row = tk.Frame(filter_card, bg="#FFFFFF")
         row.pack(fill=tk.X, padx=16, pady=8)
         tk.Label(row, text="筛选（代码/名称）：", bg="#FFFFFF",
-                 font=("Microsoft YaHei UI", 10),
+                 font=(FONT, 10),
                  fg="#4E5969").pack(side=tk.LEFT, padx=(0, 6))
         entry = tk.Entry(row, textvariable=self.filter_var, width=30,
-                         font=("Microsoft YaHei UI", 10),
+                         font=(FONT, 10),
                          bg="#FAFBFC", relief="flat",
                          highlightbackground="#C8CCD2", highlightthickness=1)
         entry.pack(side=tk.LEFT, padx=(0, 8))
         entry.bind("<Return>", lambda e: self._on_filter())
         tk.Button(row, text="筛选", command=self._on_filter,
                   bg="#1677FF", fg="white", relief="flat",
-                  font=("Microsoft YaHei UI", 10),
+                  font=(FONT, 10),
                   padx=12, pady=1, cursor="hand2").pack(side=tk.LEFT, padx=(0, 6))
         tk.Button(row, text="重置", command=self._on_reset_filter,
                   bg="#FFFFFF", fg="#4E5969", relief="flat",
-                  font=("Microsoft YaHei UI", 10),
+                  font=(FONT, 10),
                   padx=12, pady=1, cursor="hand2",
                   highlightbackground="#C8CCD2", highlightthickness=1).pack(side=tk.LEFT)
         self.filter_hint = tk.Label(row, text="", bg="#FFFFFF",
-                                    font=("Microsoft YaHei UI", 9), fg="#86909C")
+                                    font=(FONT, 9), fg="#86909C")
         self.filter_hint.pack(side=tk.LEFT, padx=12)
 
     def _build_table_card(self):
@@ -214,7 +215,7 @@ class FavoriteStocksPage:
         table_card.pack(fill=tk.BOTH, expand=True, padx=16, pady=(4, 16))
         tk.Label(table_card, text="自选股列表（红色行=有事件到期，双击行可编辑）",
                  bg="#FFFFFF",
-                 font=("Microsoft YaHei UI", 10, "bold"),
+                 font=(FONT, 10, "bold"),
                  fg="#4E5969").pack(anchor="w", padx=12, pady=(8, 2))
         container = tk.Frame(table_card, bg="#FFFFFF")
         container.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 8))
@@ -225,10 +226,10 @@ class FavoriteStocksPage:
 
         style = ttk.Style()
         style.configure("Treeview.Heading",
-                        font=("Microsoft YaHei UI", 10, "bold"),
+                        font=(FONT, 10, "bold"),
                         background="#F2F3F5", foreground="#1F2329")
         style.configure("Treeview",
-                        font=("Microsoft YaHei UI", 10),
+                        font=(FONT, 10),
                         rowheight=28)
 
         columns = tuple(k for k, *_ in TREE_COLUMNS)
@@ -673,10 +674,10 @@ class StockEditDialog:
         evt_frame.pack(fill=tk.X, pady=(12, 0))
         tk.Label(evt_frame, text="自定义事件（到期提醒）",
                  bg="#FFFFFF", fg="#1F2329",
-                 font=("Microsoft YaHei UI", 10, "bold")).pack(anchor="w")
+                 font=(FONT, 10, "bold")).pack(anchor="w")
         tk.Label(evt_frame, text="到期日 <= 今日时触发弹框 + 红色高亮",
                  bg="#FFFFFF", fg="#86909C",
-                 font=("Microsoft YaHei UI", 9)).pack(anchor="w")
+                 font=(FONT, 9)).pack(anchor="w")
 
         # 事件列表容器（可滚动）
         evt_list_wrap = tk.Frame(container, bg="#FFFFFF",
@@ -690,7 +691,7 @@ class StockEditDialog:
         evt_btns.pack(fill=tk.X, pady=(6, 0))
         tk.Button(evt_btns, text="+ 添加事件", command=self._add_event,
                   bg="#1677FF", fg="white", relief="flat",
-                  font=("Microsoft YaHei UI", 9),
+                  font=(FONT, 9),
                   padx=10, pady=1, cursor="hand2").pack(side=tk.LEFT)
 
         # 底部按钮
@@ -698,27 +699,27 @@ class StockEditDialog:
         btns.pack(fill=tk.X, side=tk.BOTTOM)
         tk.Button(btns, text="取消", command=self._on_cancel,
                   bg="#FFFFFF", fg="#4E5969", relief="flat",
-                  font=("Microsoft YaHei UI", 10),
+                  font=(FONT, 10),
                   padx=20, pady=6, cursor="hand2",
                   highlightbackground="#C8CCD2", highlightthickness=1
                   ).pack(side=tk.RIGHT, padx=(8, 16), pady=12)
         tk.Button(btns, text="保存", command=self._on_save,
                   bg="#1677FF", fg="white", relief="flat",
-                  font=("Microsoft YaHei UI", 10, "bold"),
+                  font=(FONT, 10, "bold"),
                   padx=20, pady=6, cursor="hand2").pack(side=tk.RIGHT, pady=12)
 
     def _add_field(self, parent, label, var, row, hint=""):
         tk.Label(parent, text=label, bg="#FFFFFF",
-                 font=("Microsoft YaHei UI", 10),
+                 font=(FONT, 10),
                  fg="#4E5969").grid(row=row * 2, column=0, sticky="w", pady=(8 if row else 0, 0))
         tk.Entry(parent, textvariable=var, width=36,
-                 font=("Microsoft YaHei UI", 10),
+                 font=(FONT, 10),
                  bg="#FAFBFC", relief="flat",
                  highlightbackground="#C8CCD2", highlightthickness=1
                  ).grid(row=row * 2 + 1, column=0, sticky="ew", pady=(2, 0))
         if hint:
             tk.Label(parent, text=hint, bg="#FFFFFF",
-                     font=("Microsoft YaHei UI", 8),
+                     font=(FONT, 8),
                      fg="#86909C").grid(row=row * 2 + 1, column=1, sticky="w", padx=(8, 0))
         parent.grid_columnconfigure(0, weight=1)
 
@@ -733,31 +734,31 @@ class StockEditDialog:
         if not self._events:
             tk.Label(self.evt_list, text="（暂无事件，点「+ 添加事件」）",
                      bg="#FFFFFF", fg="#86909C",
-                     font=("Microsoft YaHei UI", 9)).pack(anchor="w")
+                     font=(FONT, 9)).pack(anchor="w")
             return
         for i, (title_var, due_var) in enumerate(self._events):
             row = tk.Frame(self.evt_list, bg="#FFFFFF")
             row.pack(fill=tk.X, pady=4)
             tk.Label(row, text=f"{i + 1}.", bg="#FFFFFF",
-                     font=("Microsoft YaHei UI", 9), fg="#86909C", width=3
+                     font=(FONT, 9), fg="#86909C", width=3
                      ).pack(side=tk.LEFT)
             tk.Entry(row, textvariable=title_var, width=14,
-                     font=("Microsoft YaHei UI", 9),
+                     font=(FONT, 9),
                      bg="#FAFBFC", relief="flat",
                      highlightbackground="#C8CCD2", highlightthickness=1
                      ).pack(side=tk.LEFT, padx=(0, 4))
             tk.Entry(row, textvariable=due_var, width=12,
-                     font=("Microsoft YaHei UI", 9),
+                     font=(FONT, 9),
                      bg="#FAFBFC", relief="flat",
                      highlightbackground="#C8CCD2", highlightthickness=1
                      ).pack(side=tk.LEFT, padx=(0, 4))
             tk.Label(row, text="YYYY-MM-DD", bg="#FFFFFF",
-                     font=("Microsoft YaHei UI", 8), fg="#86909C"
+                     font=(FONT, 8), fg="#86909C"
                      ).pack(side=tk.LEFT, padx=(0, 6))
             btn = tk.Button(row, text="删", width=2,
                             command=lambda i=i: self._del_event(i),
                             bg="#FFFFFF", fg="#CF1322", relief="flat",
-                            font=("Microsoft YaHei UI", 8),
+                            font=(FONT, 8),
                             cursor="hand2",
                             highlightbackground="#CF1322", highlightthickness=1)
             btn.pack(side=tk.LEFT)

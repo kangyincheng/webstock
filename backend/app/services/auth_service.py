@@ -14,7 +14,32 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional, Tuple
 
 from jose import JWTError, jwt
-from passlib.context import CryptContext
+
+# ---- bcrypt 兼容层：passlib 与 bcrypt>=4.x 不兼容，直接用 bcrypt ----
+try:
+    import bcrypt as _bcrypt
+
+    def hash_password(pwd: str) -> str:
+        return _bcrypt.hashpw(pwd.encode("utf-8"), _bcrypt.gensalt()).decode("utf-8")
+
+    def verify_password(raw: str, hashed: str) -> bool:
+        try:
+            return _bcrypt.checkpw(raw.encode("utf-8"), hashed.encode("utf-8"))
+        except Exception:
+            return False
+except ImportError:
+    # fallback: passlib（旧版 bcrypt < 4.x 环境）
+    from passlib.context import CryptContext as _CryptContext
+    _pwd_ctx = _CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+    def hash_password(pwd: str) -> str:
+        return _pwd_ctx.hash(pwd)
+
+    def verify_password(raw: str, hashed: str) -> bool:
+        try:
+            return _pwd_ctx.verify(raw, hashed)
+        except Exception:
+            return False
 
 DB_LOCK = threading.Lock()
 
@@ -51,8 +76,6 @@ def _secret() -> str:
 JWT_ALG = "HS256"
 ACCESS_TTL_MIN = 60 * 6          # access 6 小时
 REFRESH_TTL_HOURS = 24 * 14      # refresh 14 天
-
-pwd_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 class AuthDB:
@@ -138,18 +161,7 @@ def auth_db() -> AuthDB:
     return _DB_INST
 
 
-# =============== 密码 / JWT ===============
-def hash_password(pwd: str) -> str:
-    return pwd_ctx.hash(pwd)
-
-
-def verify_password(raw: str, hashed: str) -> bool:
-    try:
-        return pwd_ctx.verify(raw, hashed)
-    except Exception:
-        return False
-
-
+# =============== JWT ===============
 def _now_ts() -> int:
     return int(datetime.now(timezone.utc).timestamp())
 

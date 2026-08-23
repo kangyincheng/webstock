@@ -62,6 +62,51 @@ def display_available() -> bool:
     return bool(os.environ.get("DISPLAY"))
 
 
+# 跨平台中文字体候选列表（按优先级排序）
+_CJK_FONT_CANDIDATES = [
+    # Windows
+    "Microsoft YaHei UI", "Microsoft YaHei",
+    # macOS
+    "PingFang SC", "Heiti SC", "STHeiti",
+    # Linux 常见中文字体
+    "Noto Sans CJK SC", "Noto Sans CJK",
+    "Source Han Sans SC", "Source Han Sans CN",
+    "WenQuanYi Micro Hei", "WenQuanYi Zen Hei",
+    "WenQuanYi Micro Hei Mono",
+    # Windows 兜底
+    "SimHei", "SimSun",
+]
+
+
+def pick_cjk_font() -> str:
+    """返回一个当前平台可用的中文字体名。
+
+    - 在 Tk root 已创建后调用会枚举系统字体列表挑选；
+    - 若 Tk 不可用或尚未初始化，则返回按平台预设的默认字体。
+    """
+    if sys.platform == "win32":
+        default = "Microsoft YaHei UI"
+    elif sys.platform == "darwin":
+        default = "PingFang SC"
+    else:
+        default = "Noto Sans CJK SC"
+
+    if not TK_AVAILABLE:
+        return default
+    try:
+        from tkinter import font as _tkfont
+        # 若 default root 已存在，families() 能拿到真实字体列表
+        if tk._default_root is None:
+            return default
+        available = set(_tkfont.families())
+        for name in _CJK_FONT_CANDIDATES:
+            if name in available:
+                return name
+    except Exception:
+        pass
+    return default
+
+
 def can_run_gui() -> bool:
     """是否可以启动桌面 GUI：tkinter 已安装 且 有显示器。"""
     return TK_AVAILABLE and display_available()

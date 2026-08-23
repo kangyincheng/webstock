@@ -28,7 +28,15 @@ try:
     from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
     from matplotlib.figure import Figure
     import matplotlib
-    matplotlib.rcParams["font.sans-serif"] = ["SimHei", "Arial Unicode MS", "DejaVu Sans"]
+    matplotlib.rcParams["font.sans-serif"] = [
+        "Microsoft YaHei", "Microsoft YaHei UI",  # Windows
+        "PingFang SC", "Heiti SC", "STHeiti",     # macOS
+        "Noto Sans CJK SC", "Noto Sans CJK",      # Linux
+        "WenQuanYi Micro Hei", "WenQuanYi Zen Hei",
+        "Source Han Sans SC", "Source Han Sans CN",
+        "SimHei", "SimSun",                       # Windows 兜底
+        "Arial Unicode MS", "DejaVu Sans",        # 最终兜底
+    ]
     matplotlib.rcParams["axes.unicode_minus"] = False
     _MPL_TK_AVAILABLE = True
 except Exception:

@@ -47,6 +47,11 @@ def _display_available() -> bool:
     return bool(os.environ.get("DISPLAY"))
 
 
+# 跨平台中文字体（Windows/macOS/Linux 自动适配）
+from ._gui_compat import pick_cjk_font
+FONT = pick_cjk_font()
+
+
 # 钉钉风格配色
 COLOR_NAV_BG = "#2E2F33"          # 左侧导航栏背景（深灰）
 COLOR_NAV_BG_DARKER = "#26282C"   # 菜单组标题区
@@ -106,13 +111,13 @@ class NavItem(tk.Frame):
         else:
             # 子菜单项用一个圆点表示
             dot = tk.Label(
-                row, text="•", font=("Microsoft YaHei UI", 12),
+                row, text="•", font=(FONT, 12),
                 bg=COLOR_ITEM_NORMAL, fg=COLOR_TEXT_GROUP, width=2)
             dot.pack(side=tk.LEFT, padx=(10, 8))
 
         # 文字
         self._text_lbl = tk.Label(
-            row, text=label, font=("Microsoft YaHei UI", 10),
+            row, text=label, font=(FONT, 10),
             bg=COLOR_ITEM_NORMAL, fg=COLOR_TEXT_NORMAL)
         self._text_lbl.pack(side=tk.LEFT, expand=True, fill=tk.X, pady=2)
 
@@ -120,7 +125,7 @@ class NavItem(tk.Frame):
         self._arrow_lbl = None
         if show_arrow:
             self._arrow_lbl = tk.Label(
-                row, text="▶", font=("Microsoft YaHei UI", 9),
+                row, text="▶", font=(FONT, 9),
                 bg=COLOR_ITEM_NORMAL, fg=COLOR_TEXT_NORMAL)
             self._arrow_lbl.pack(side=tk.RIGHT, padx=10)
 
@@ -265,17 +270,17 @@ class MainWindow:
         topbar.pack(fill=tk.X)
         topbar.pack_propagate(False)
         tk.Label(
-            topbar, text="🚀  mystock 工作台", font=("Microsoft YaHei UI", 13, "bold"),
+            topbar, text="🚀  mystock 工作台", font=(FONT, 13, "bold"),
             bg=COLOR_TOPBAR_BG, fg="#1F2329").pack(side=tk.LEFT, padx=20)
         self._topbar_module_var = tk.StringVar(value="股票预测")
         tk.Label(
             topbar, textvariable=self._topbar_module_var,
-            font=("Microsoft YaHei UI", 11),
+            font=(FONT, 11),
             bg=COLOR_TOPBAR_BG, fg="#4E5969").pack(side=tk.LEFT, padx=8)
 
         # 右侧：用户名（最右）
         tk.Label(
-            topbar, text="jeoj", font=("Microsoft YaHei UI", 10),
+            topbar, text="jeoj", font=(FONT, 10),
             bg=COLOR_TOPBAR_BG, fg="#86909C").pack(side=tk.RIGHT, padx=20)
 
         # 右侧：市场温度计（刷新按钮 + 数值 + 温度框，按从右到左依次 pack）
@@ -283,20 +288,20 @@ class MainWindow:
             topbar, text="⟳", command=self._refresh_thermometer,
             bg=COLOR_TOPBAR_BG, fg="#4E5969", relief="flat",
             activebackground="#F2F3F5", activeforeground="#1F2329",
-            font=("Microsoft YaHei UI", 12),
+            font=(FONT, 12),
             padx=6, pady=0, cursor="hand2", bd=0)
         self._btn_therm_refresh.pack(side=tk.RIGHT, padx=(0, 12))
 
         self._therm_value_var = tk.StringVar(value="--")
         tk.Label(
             topbar, textvariable=self._therm_value_var,
-            font=("Microsoft YaHei UI", 11, "bold"),
+            font=(FONT, 11, "bold"),
             bg=COLOR_TOPBAR_BG, fg="#1F2329").pack(side=tk.RIGHT, padx=(4, 0))
 
         # 温度框：带档位背景色的小色块，显示 🌡️ 图标
         self._therm_box = tk.Label(
             topbar, text=" 🌡️ 股票温度计 ",
-            font=("Microsoft YaHei UI", 10, "bold"),
+            font=(FONT, 10, "bold"),
             bg=COLOR_THERM_IDLE, fg="#FFFFFF")
         self._therm_box.pack(side=tk.RIGHT, padx=(0, 4), pady=12)
 
@@ -363,7 +368,7 @@ class MainWindow:
         logo_frame.pack(fill=tk.X)
         logo_frame.pack_propagate(False)
         tk.Label(
-            logo_frame, text="主菜单", font=("Microsoft YaHei UI", 11, "bold"),
+            logo_frame, text="主菜单", font=(FONT, 11, "bold"),
             bg=COLOR_NAV_BG_DARKER, fg=COLOR_TEXT_NORMAL).pack(pady=12)
 
         # 可滚动菜单区
@@ -389,7 +394,7 @@ class MainWindow:
         for group_name, items in self.MENU_GROUPS:
             tk.Label(
                 menu_holder, text=group_name, anchor="w",
-                font=("Microsoft YaHei UI", 9),
+                font=(FONT, 9),
                 bg=COLOR_NAV_BG, fg=COLOR_TEXT_GROUP).pack(
                 fill=tk.X, padx=12, pady=(12, 4))
             for entry in items:
@@ -624,18 +629,18 @@ class MainWindow:
             center, text=icon, font=("Segoe UI Emoji", 64),
             bg=COLOR_CONTENT_BG, fg="#86909C").pack(pady=(0, 16))
         tk.Label(
-            center, text=label, font=("Microsoft YaHei UI", 20, "bold"),
+            center, text=label, font=(FONT, 20, "bold"),
             bg=COLOR_CONTENT_BG, fg="#1F2329").pack(pady=(0, 8))
         tk.Label(
             center, text="该模块正在建设中，敬请期待",
-            font=("Microsoft YaHei UI", 11),
+            font=(FONT, 11),
             bg=COLOR_CONTENT_BG, fg="#86909C").pack()
 
         card = tk.Frame(page, bg="#FFFFFF", bd=0, highlightbackground=COLOR_TOPBAR_BORDER,
                         highlightthickness=1)
         card.place(relx=0.5, rely=0.78, anchor=tk.CENTER, width=420)
         tk.Label(
-            card, text="功能规划", font=("Microsoft YaHei UI", 12, "bold"),
+            card, text="功能规划", font=(FONT, 12, "bold"),
             bg="#FFFFFF", fg="#1F2329").pack(anchor="w", padx=20, pady=(14, 6))
         tips = {
             "dashboard": "• 多支股票横向对比\n• 关键指标雷达图\n• 自选股看板",
@@ -645,7 +650,7 @@ class MainWindow:
             "stock": "• 股票预测（已在子菜单中）\n• ST 股票表现\n• 板块热度 / 热门股票",
         }.get(key, "• 即将上线")
         tk.Label(
-            card, text=tips, font=("Microsoft YaHei UI", 10),
+            card, text=tips, font=(FONT, 10),
             bg="#FFFFFF", fg="#4E5969", justify="left").pack(
             anchor="w", padx=20, pady=(0, 14))
         return page

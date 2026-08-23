@@ -21,9 +21,10 @@
 """
 import os
 import threading
-import tkinter as tk
 from datetime import datetime
-from tkinter import ttk, scrolledtext, messagebox
+from ._gui_compat import tk, ttk, scrolledtext, messagebox, pick_cjk_font
+
+FONT = pick_cjk_font()
 
 import pandas as pd
 
@@ -76,13 +77,13 @@ class HotStocksPage:
     def _build_ui(self):
         tk.Label(
             self.parent, text="热门股票",
-            font=("Microsoft YaHei UI", 14, "bold"),
+            font=(FONT, 14, "bold"),
             bg="#F5F6F7", fg="#1F2329", anchor="w"
         ).pack(fill=tk.X, padx=16, pady=(12, 4))
         tk.Label(
             self.parent,
             text="按涨幅 / 成交额 / 成交量排序，取 TOP N 热门股票",
-            font=("Microsoft YaHei UI", 10),
+            font=(FONT, 10),
             bg="#F5F6F7", fg="#86909C", anchor="w"
         ).pack(fill=tk.X, padx=16, pady=(0, 8))
 
@@ -94,24 +95,24 @@ class HotStocksPage:
         row.pack(fill=tk.X, padx=16, pady=10)
 
         tk.Label(row, text="交易日(YYYYMMDD,留空=最近)", bg="#FFFFFF",
-                 font=("Microsoft YaHei UI", 10)).pack(side=tk.LEFT, padx=(0, 6))
+                 font=(FONT, 10)).pack(side=tk.LEFT, padx=(0, 6))
         tk.Entry(row, textvariable=self.trade_date_var, width=12,
-                 font=("Microsoft YaHei UI", 10),
+                 font=(FONT, 10),
                  bg="#FAFBFC", relief="flat",
                  highlightbackground="#C8CCD2", highlightthickness=1
                  ).pack(side=tk.LEFT, padx=(0, 12))
 
         tk.Label(row, text="排序方式", bg="#FFFFFF",
-                 font=("Microsoft YaHei UI", 10)).pack(side=tk.LEFT, padx=(0, 4))
+                 font=(FONT, 10)).pack(side=tk.LEFT, padx=(0, 4))
         sort_menu = ttk.Combobox(
             row, textvariable=self.sort_var, width=10, state="readonly",
             values=[v for v, _ in self.SORT_OPTIONS])
         sort_menu.pack(side=tk.LEFT, padx=(0, 12))
 
         tk.Label(row, text="TOP N", bg="#FFFFFF",
-                 font=("Microsoft YaHei UI", 10)).pack(side=tk.LEFT, padx=(0, 4))
+                 font=(FONT, 10)).pack(side=tk.LEFT, padx=(0, 4))
         tk.Entry(row, textvariable=self.top_n_var, width=6,
-                 font=("Microsoft YaHei UI", 10),
+                 font=(FONT, 10),
                  bg="#FAFBFC", relief="flat",
                  highlightbackground="#C8CCD2", highlightthickness=1
                  ).pack(side=tk.LEFT, padx=(0, 12))
@@ -120,21 +121,21 @@ class HotStocksPage:
             row, text="加载", command=self._on_load,
             bg="#1677FF", fg="white", relief="flat",
             activebackground="#4096FF", activeforeground="white",
-            font=("Microsoft YaHei UI", 10, "bold"),
+            font=(FONT, 10, "bold"),
             padx=14, pady=2, cursor="hand2")
         self.btn_load.pack(side=tk.LEFT, padx=(0, 8))
 
         self.btn_refresh = tk.Button(
             row, text="刷新缓存", command=self._on_refresh,
             bg="#FFFFFF", fg="#1677FF", relief="flat",
-            font=("Microsoft YaHei UI", 10),
+            font=(FONT, 10),
             padx=12, pady=2, cursor="hand2",
             highlightbackground="#1677FF", highlightthickness=1)
         self.btn_refresh.pack(side=tk.LEFT, padx=(0, 8))
 
         self.status_hint = tk.Label(
             row, text="", bg="#FFFFFF",
-            font=("Microsoft YaHei UI", 9), fg="#86909C")
+            font=(FONT, 9), fg="#86909C")
         self.status_hint.pack(side=tk.LEFT, padx=12)
 
         # 进度日志
@@ -142,7 +143,7 @@ class HotStocksPage:
                             highlightbackground="#E5E6EB", highlightthickness=1)
         log_card.pack(fill=tk.X, padx=16, pady=4)
         tk.Label(log_card, text="进度日志", bg="#FFFFFF",
-                 font=("Microsoft YaHei UI", 10, "bold"),
+                 font=(FONT, 10, "bold"),
                  fg="#4E5969").pack(anchor="w", padx=12, pady=(8, 2))
         self.log_text = scrolledtext.ScrolledText(
             log_card, height=5, font=("Consolas", 9),
@@ -162,25 +163,25 @@ class HotStocksPage:
         row = tk.Frame(filter_card, bg="#FFFFFF")
         row.pack(fill=tk.X, padx=16, pady=8)
         tk.Label(row, text="筛选（代码/名称/行业）：", bg="#FFFFFF",
-                 font=("Microsoft YaHei UI", 10),
+                 font=(FONT, 10),
                  fg="#4E5969").pack(side=tk.LEFT, padx=(0, 6))
         entry = tk.Entry(row, textvariable=self.filter_var, width=30,
-                         font=("Microsoft YaHei UI", 10),
+                         font=(FONT, 10),
                          bg="#FAFBFC", relief="flat",
                          highlightbackground="#C8CCD2", highlightthickness=1)
         entry.pack(side=tk.LEFT, padx=(0, 8))
         entry.bind("<Return>", lambda e: self._on_filter())
         tk.Button(row, text="筛选", command=self._on_filter,
                   bg="#1677FF", fg="white", relief="flat",
-                  font=("Microsoft YaHei UI", 10),
+                  font=(FONT, 10),
                   padx=12, pady=1, cursor="hand2").pack(side=tk.LEFT, padx=(0, 6))
         tk.Button(row, text="重置", command=self._on_reset_filter,
                   bg="#FFFFFF", fg="#4E5969", relief="flat",
-                  font=("Microsoft YaHei UI", 10),
+                  font=(FONT, 10),
                   padx=12, pady=1, cursor="hand2",
                   highlightbackground="#C8CCD2", highlightthickness=1).pack(side=tk.LEFT)
         self.filter_hint = tk.Label(row, text="", bg="#FFFFFF",
-                                   font=("Microsoft YaHei UI", 9), fg="#86909C")
+                                   font=(FONT, 9), fg="#86909C")
         self.filter_hint.pack(side=tk.LEFT, padx=12)
 
     def _build_table_card(self):
@@ -188,7 +189,7 @@ class HotStocksPage:
                               highlightbackground="#E5E6EB", highlightthickness=1)
         table_card.pack(fill=tk.BOTH, expand=True, padx=16, pady=(4, 16))
         tk.Label(table_card, text="热门股票榜（点击列头排序）", bg="#FFFFFF",
-                 font=("Microsoft YaHei UI", 10, "bold"),
+                 font=(FONT, 10, "bold"),
                  fg="#4E5969").pack(anchor="w", padx=12, pady=(8, 2))
         container = tk.Frame(table_card, bg="#FFFFFF")
         container.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 8))
@@ -199,10 +200,10 @@ class HotStocksPage:
 
         style = ttk.Style()
         style.configure("Treeview.Heading",
-                        font=("Microsoft YaHei UI", 10, "bold"),
+                        font=(FONT, 10, "bold"),
                         background="#F2F3F5", foreground="#1F2329")
         style.configure("Treeview",
-                        font=("Microsoft YaHei UI", 10),
+                        font=(FONT, 10),
                         rowheight=28)
 
         columns = tuple(k for k, *_ in TREE_COLUMNS)
