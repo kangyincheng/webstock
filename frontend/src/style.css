@@ -1,0 +1,23 @@
+/* 全局：钉钉蓝色系 + 桌面端优先（平板适配） */
+:root {
+  --primary: #1677FF;
+  --nav-bg: #2E2F33;
+  --nav-active: #1677FF;
+  --content-bg: #F5F6F7;
+  --text-primary: #1F2329;
+  --text-secondary: #86909C;
+}
+html, body, #app { height: 100%; margin: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei UI", "Segoe UI", Arial, sans-serif;
+  color: var(--text-primary);
+  background: var(--content-bg);
+  -webkit-font-smoothing: antialiased;
+}
+.page-title { font-size: 20px; font-weight: 700; margin: 0 0 4px; }
+.page-desc { font-size: 13px; color: var(--text-secondary); margin-bottom: 16px; }
+.card {
+  background: #fff; border-radius: 8px; padding: 16px;
+  box-shadow: 0 1px 3px rgba(0,0,0,.05);
+  margin-bottom: 16px;
+}

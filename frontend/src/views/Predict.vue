@@ -1,0 +1,334 @@
+<script setup>
+import { computed, onBeforeUnmount, reactive, ref, shallowRef, watch } from 'vue'
+import * as echarts from 'echarts'
+import { ElMessage } from 'element-plus'
+import { predictTrain, listModels, deleteModel } from '../api/index.js'
+
+const form = reactive({
+  framework: 'pytorch',
+  stock_code: 'sh.600036',
+  start_date: '2019-01-01',
+  end_date: '',
+  adjustflag: '2',
+  frequency: 'd',
+  feature_cols: 'open,high,low,close,volume,amount,turn',
+  target_col: 'close',
+  seq_len: 60,
+  train_ratio: 0.8,
+  model_type: 'LSTM',
+  hidden_size: 128,
+  num_layers: 2,
+  dropout: 0.2,
+  bidirectional: false,
+  d_model: 128,
+  nhead: 4,
+  dim_feedforward: 256,
+  epochs: 80,
+  batch_size: 32,
+  learning_rate: 0.001,
+  optimizer_type: 'Adam',
+  loss_type: 'MSE',
+  early_stopping_patience: 15,
+  model_name: '',
+})
+
+const running = ref(false)
+const logs = ref([])
+const progress = reactive({ epoch: 0, total_epochs: 0, train_loss: 0, val_loss: 0 })
+const result = ref(null)
+
+const chartRef = shallowRef(null)
+const lossRef = shallowRef(null)
+let ch = null, cl = null
+let ws = null
+let currentTaskId = null
+
+function pushLog(msg) { logs.value.push(msg) }
+
+function ws_connect(task_id) {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws'
+  const url = `${proto}://${location.host}/ws/train/${task_id}`
+  try {
+    ws = new WebSocket(url)
+    ws.onmessage = (ev) => {
+      const d = JSON.parse(ev.data)
+      if (d.epoch) progress.epoch = d.epoch
+      if (d.total_epochs) progress.total_epochs = d.total_epochs
+      if (typeof d.train_loss === 'number') progress.train_loss = d.train_loss
+      if (typeof d.val_loss === 'number') progress.val_loss = d.val_loss
+      if (d.message) pushLog(`[${d.stage || ''}] ${d.message}`)
+    }
+  } catch (e) { pushLog('WebSocket 连接失败，改用轮询') }
+}
+
+function ws_close() {
+  try { ws && ws.close() } catch {}
+  ws = null
+}
+
+const pct = computed(() =>
+  progress.total_epochs ? Math.round((progress.epoch / progress.total_epochs) * 100) : 0)
+
+async function start() {
+  running.value = true
+  logs.value = []
+  result.value = null
+  progress.epoch = 0
+  try {
+    const r = await predictTrain({ ...form })
+    currentTaskId = r.task_id
+    ws_connect(r.task_id)
+    result.value = r
+    render()
+    ElMessage.success(r.status === 'success' ? '训练完成' : '训练异常，请查看日志')
+  } catch (e) {
+    ElMessage.error(e.message)
+    pushLog(String(e.message || e))
+  } finally {
+    running.value = false
+    ws_close()
+  }
+}
+
+function render() {
+  const r = result.value
+  if (!r) return
+  if (ch) {
+    const dates = r.dates || []
+    const actual = r.actual || []
+    const predicted = r.predicted || []
+    const k = Math.min(dates.length, actual.length, predicted.length)
+    ch.setOption({
+      tooltip: { trigger: 'axis' },
+      legend: { top: 0, data: ['实际', '预测'] },
+      grid: { left: 48, right: 24, top: 32, bottom: 48 },
+      xAxis: { type: 'category', data: dates.slice(-k), axisLabel: { rotate: 40 } },
+      yAxis: { type: 'value', scale: true },
+      series: [
+        { name: '实际', type: 'line', showSymbol: false, data: actual.slice(-k), itemStyle: { color: '#1677FF' } },
+        { name: '预测', type: 'line', showSymbol: false, data: predicted.slice(-k), itemStyle: { color: '#F5222D' } },
+      ],
+    })
+  }
+  if (cl) {
+    const tl = r.train_losses || []
+    const vl = r.val_losses || []
+    const xs = tl.map((_, i) => i + 1)
+    cl.setOption({
+      tooltip: { trigger: 'axis' },
+      legend: { top: 0, data: ['Train', 'Val'] },
+      grid: { left: 48, right: 24, top: 32, bottom: 32 },
+      xAxis: { type: 'category', data: xs },
+      yAxis: { type: 'value', scale: true },
+      series: [
+        { name: 'Train', type: 'line', showSymbol: false, smooth: true, data: tl, itemStyle: { color: '#1677FF' } },
+        { name: 'Val',   type: 'line', showSymbol: false, smooth: true, data: vl, itemStyle: { color: '#F5222D' } },
+      ],
+    })
+  }
+}
+
+// ---------- 模型管理 ----------
+const modelList = ref([])
+const modelFw = ref('')
+async function refreshModels() {
+  const r = await listModels(modelFw.value || undefined)
+  modelList.value = r.models || []
+}
+watch(modelFw, refreshModels)
+
+async function del(m) {
+  await deleteModel(m)
+  ElMessage.success('已删除')
+  refreshModels()
+}
+
+import { onMounted } from 'vue'
+onMounted(async () => {
+  ch = echarts.init(chartRef.value)
+  cl = echarts.init(lossRef.value)
+  const r = () => { ch?.resize(); cl?.resize() }
+  window.addEventListener('resize', r)
+  window.__ws_resize_charts = r
+  refreshModels()
+})
+onBeforeUnmount(() => { ws_close(); ch?.dispose(); cl?.dispose() })
+</script>
+
+<template>
+  <div>
+    <h2 class="page-title">股票预测（PyTorch / TensorFlow 双框架）</h2>
+    <p class="page-desc">训练过程通过 WebSocket 实时推送 epoch/Loss；完成后展示 实际 vs 预测 曲线与评估指标。</p>
+
+    <el-row :gutter="16">
+      <el-col :span="8">
+        <div class="card">
+          <div style="font-weight:600; margin-bottom:12px">参数</div>
+          <el-form :model="form" label-width="130px" size="default" label-position="right">
+            <el-form-item label="框架">
+              <el-radio-group v-model="form.framework">
+                <el-radio-button label="pytorch" />
+                <el-radio-button label="tensorflow" />
+              </el-radio-group>
+            </el-form-item>
+            <el-form-item label="模型">
+              <el-select v-model="form.model_type">
+                <el-option label="LSTM" value="LSTM" />
+                <el-option label="GRU" value="GRU" />
+                <el-option label="Transformer" value="Transformer" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="股票代码">
+              <el-input v-model="form.stock_code" placeholder="sh.600036 / sz.000001" />
+            </el-form-item>
+            <el-form-item label="开始日期">
+              <el-input v-model="form.start_date" />
+            </el-form-item>
+            <el-form-item label="结束日期">
+              <el-input v-model="form.end_date" placeholder="空 = 最新" />
+            </el-form-item>
+            <el-form-item label="复权">
+              <el-select v-model="form.adjustflag">
+                <el-option label="后复权" value="1" />
+                <el-option label="前复权" value="2" />
+                <el-option label="不复权" value="3" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="频率">
+              <el-select v-model="form.frequency">
+                <el-option label="日K" value="d" />
+                <el-option label="周K" value="w" />
+                <el-option label="月K" value="m" />
+                <el-option label="5分钟" value="5" />
+                <el-option label="30分钟" value="30" />
+                <el-option label="60分钟" value="60" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="特征列">
+              <el-input v-model="form.feature_cols" />
+            </el-form-item>
+            <el-form-item label="目标列">
+              <el-input v-model="form.target_col" />
+            </el-form-item>
+            <el-form-item label="序列长度">
+              <el-input-number v-model="form.seq_len" :min="5" :max="240" />
+            </el-form-item>
+            <el-form-item label="训练集比例">
+              <el-input-number v-model="form.train_ratio" :min="0.5" :max="0.95" :step="0.05" />
+            </el-form-item>
+            <el-form-item label="隐藏层">
+              <el-input-number v-model="form.hidden_size" :min="16" :max="1024" :step="16" />
+            </el-form-item>
+            <el-form-item label="层数">
+              <el-input-number v-model="form.num_layers" :min="1" :max="6" />
+            </el-form-item>
+            <el-form-item label="Dropout">
+              <el-input-number v-model="form.dropout" :min="0" :max="0.9" :step="0.05" />
+            </el-form-item>
+            <el-form-item label="双向" v-if="form.model_type !== 'Transformer'">
+              <el-switch v-model="form.bidirectional" />
+            </el-form-item>
+            <el-form-item label="d_model" v-if="form.model_type === 'Transformer'">
+              <el-input-number v-model="form.d_model" :min="32" :max="1024" :step="32" />
+            </el-form-item>
+            <el-form-item label="注意力头" v-if="form.model_type === 'Transformer'">
+              <el-input-number v-model="form.nhead" :min="1" :max="16" />
+            </el-form-item>
+            <el-form-item label="前馈维度" v-if="form.model_type === 'Transformer'">
+              <el-input-number v-model="form.dim_feedforward" :min="64" :max="4096" :step="64" />
+            </el-form-item>
+            <el-form-item label="Epochs">
+              <el-input-number v-model="form.epochs" :min="1" :max="1000" />
+            </el-form-item>
+            <el-form-item label="Batch size">
+              <el-input-number v-model="form.batch_size" :min="8" :max="1024" />
+            </el-form-item>
+            <el-form-item label="学习率">
+              <el-input v-model.number="form.learning_rate" />
+            </el-form-item>
+            <el-form-item label="优化器">
+              <el-select v-model="form.optimizer_type">
+                <el-option label="Adam" value="Adam" />
+                <el-option label="SGD" value="SGD" />
+                <el-option label="AdamW" value="AdamW" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="损失">
+              <el-select v-model="form.loss_type">
+                <el-option label="MSE" value="MSE" />
+                <el-option label="MAE" value="MAE" />
+                <el-option label="Huber" value="Huber" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="早停耐心">
+              <el-input-number v-model="form.early_stopping_patience" :min="1" :max="100" />
+            </el-form-item>
+            <el-form-item label="保存名">
+              <el-input v-model="form.model_name" placeholder="空=自动生成" />
+            </el-form-item>
+            <el-form-item>
+              <el-button type="primary" :loading="running" @click="start">开始训练</el-button>
+            </el-form-item>
+          </el-form>
+        </div>
+
+        <div class="card">
+          <div style="display:flex; align-items:center; margin-bottom:12px">
+            <div style="font-weight:600">已保存模型</div>
+            <div style="flex:1"></div>
+            <el-radio-group v-model="modelFw" size="small">
+              <el-radio-button label="">全部</el-radio-button>
+              <el-radio-button label="pytorch">PT</el-radio-button>
+              <el-radio-button label="tensorflow">TF</el-radio-button>
+            </el-radio-group>
+            <el-button size="small" style="margin-left:8px" @click="refreshModels">刷新</el-button>
+          </div>
+          <el-table :data="modelList" size="small" stripe max-height="240">
+            <el-table-column prop="$key" label="名称" />
+            <el-table-column label="操作" width="100">
+              <template #default="{ row }">
+                <el-button size="small" type="danger" link @click="del(row)">删除</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
+      </el-col>
+
+      <el-col :span="16">
+        <div class="card">
+          <div style="display:flex; align-items:center">
+            <div style="font-weight:600">训练进度</div>
+            <div style="flex:1"></div>
+            <div style="color:#86909c; font-size:12px">
+              Epoch {{ progress.epoch }} / {{ progress.total_epochs }} ·
+              TrainLoss {{ progress.train_loss }} · ValLoss {{ progress.val_loss }}
+            </div>
+          </div>
+          <el-progress :percentage="pct" :stroke-width="12" style="margin:8px 0 12px" />
+          <div ref="lossRef" style="height:240px"></div>
+        </div>
+
+        <div class="card">
+          <div style="font-weight:600; margin-bottom:8px">实际值 vs 预测值（测试集）</div>
+          <div v-if="result?.metrics" style="margin-bottom:8px; color:#4e5969; font-size:13px">
+            <el-tag type="info">MAE {{ result.metrics.MAE }}</el-tag>
+            <el-tag type="info" style="margin-left:8px">RMSE {{ result.metrics.RMSE }}</el-tag>
+            <el-tag type="info" style="margin-left:8px">MAPE {{ result.metrics['MAPE%'] }}%</el-tag>
+            <el-tag v-if="result?.save_path" type="success" style="margin-left:8px">
+              已保存 {{ result.save_path.split('/').pop() }}
+            </el-tag>
+          </div>
+          <div ref="chartRef" style="height:360px"></div>
+        </div>
+
+        <div class="card">
+          <div style="font-weight:600; margin-bottom:8px">日志</div>
+          <el-scrollbar style="height:180px; background:#0e1116; color:#e5e6eb; padding:8px 12px; border-radius:6px; font-family: ui-monospace,Menlo,Consolas,monospace; font-size:12px">
+            <div v-for="(l,i) in logs" :key="i">{{ l }}</div>
+            <div v-if="!logs.length">（暂无）</div>
+          </el-scrollbar>
+        </div>
+      </el-col>
+    </el-row>
+  </div>
+</template>
