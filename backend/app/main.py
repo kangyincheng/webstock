@@ -27,8 +27,13 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from .cache import CacheLayer
-from .routers import market, predict, favorites, cbond, system
+from .routers import system, auth, audit, market, predict, favorites, cbond
 from .ws_bus import ws_endpoint
+# 初始化 auth + audit 数据库（首次启动自动建表）
+from .services import auth_service as _auth  # noqa: F401
+from .services import audit_service as _audit_svc  # noqa: F401
+_auth.auth_db()
+_audit_svc.audit()
 
 
 @asynccontextmanager
@@ -54,6 +59,8 @@ app.add_middleware(
 
 # ---- routers ----
 app.include_router(system.router, prefix="/api/system", tags=["system"])
+app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
+app.include_router(audit.router, prefix="/api/audit", tags=["audit"])
 app.include_router(market.router, prefix="/api/market", tags=["market"])
 app.include_router(predict.router, prefix="/api/predict", tags=["predict"])
 app.include_router(favorites.router, prefix="/api/favorites", tags=["favorites"])

@@ -5,11 +5,13 @@ import asyncio
 import threading
 from typing import Dict, Any, Optional
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query, Request
 
 from ..schemas import DataResponse, PredictParams
 from ..services.train_service import TrainingService
 from ..ws_bus import ws_progress_adapter
+from ..services.audit_service import CATEGORY_PREDICT_TRAIN, CATEGORY_MODEL_DELETE
+from ..deps import audit_action, get_current_user_or_none
 
 router = APIRouter()
 
@@ -29,22 +31,19 @@ def get_ts() -> TrainingService:
 
 
 @router.post("/train", response_model=DataResponse)
-async def run_train(params: PredictParams):
+@audit_action(CATEGORY_PREDICT_TRAIN,
+              "{payload.framework} / {payload.model_type} 训练 {payload.stock_code}",
+              capture_response=False,
+              target_key=lambda u, p, r, e: getattr(p, "stock_code", None))
+async def run_train(params: PredictParams,
+                    request: Request,
+                    user: Optional[Dict[str, Any]] = Depends(get_current_user_or_none)):
     ts = get_ts()
     loop = asyncio.get_running_loop()
 
-    task_id = None
-    progress_cb = None
-
-    # 生成临时 task_id（TrainingService 会再生成一个，这里在回调里映射）
-    payload_box: Dict[str, Any] = {}
-
     def _real_cb(msg: Dict[str, Any]):
-        nonlocal task_id
-        tid = msg.get("task_id")
-        if tid:
-            task_id = tid
-        ws_fn = ws_progress_adapter(tid or "")
+        tid = msg.get("task_id") or ""
+        ws_fn = ws_progress_adapter(tid)
         ws_fn(msg)
 
     def _run() -> Dict[str, Any]:
@@ -72,7 +71,12 @@ async def list_models(framework: Optional[str] = Query(default=None, pattern="^(
 
 
 @router.delete("/models/{name}", response_model=DataResponse)
-async def delete_model(name: str):
+@audit_action(CATEGORY_MODEL_DELETE, "删除模型 {name}",
+              capture_response=True,
+              target_key=lambda u, p, r, e, name_kwarg=None: name_kwarg)
+async def delete_model(name: str,
+                       request: Request,
+                       user: Optional[Dict[str, Any]] = Depends(get_current_user_or_none)):
     ts = get_ts()
     ok = ts.delete_model(name)
     return DataResponse(success=ok, message=("已删除" if ok else "未找到或不允许删除"))

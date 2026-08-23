@@ -1,8 +1,9 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, markRaw } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { ElMessage } from 'element-plus'
-import { sysHealth, sysVersion } from './api/index.js'
+import { ElMessage, ElDropdown } from 'element-plus'
+import { sysHealth, sysVersion, authMe, authLogout, auditLast } from './api/index.js'
+import { tokenStore } from './api/http.js'
 
 const router = useRouter()
 const route = useRoute()
@@ -18,8 +19,9 @@ const navMenu = [
     { key: '/hot', title: '⭐ 热门股票' },
     { key: '/favorites', title: '💖 自选股' },
   ]},
-  { key: 'system', title: '系统', items: [
-    { key: '/dashboard', title: '⚙️ 设置（占位）' },
+  { key: 'mine', title: '我的', items: [
+    { key: '/profile', title: '👤 个人中心', requireAuth: true },
+    { key: '/history', title: '🧾 操作历史', requireAuth: true },
   ]},
 ]
 
@@ -27,6 +29,64 @@ const active = computed(() => route.path)
 function go(p) { router.push(p) }
 
 const version = ref('')
+const user = ref(tokenStore.user)
+const lastAction = ref(null)
+const welcomeShown = ref(false)
+
+async function refreshMe(showWelcome = false) {
+  if (!tokenStore.isLoggedIn()) { user.value = null; return }
+  try {
+    const meResp = await authMe()
+    // /auth/me 格式：{ auth, user, last_action, recent_history }
+    const me = meResp?.user || meResp
+    user.value = me
+    tokenStore.setUser(me)
+    lastAction.value = meResp?.last_action || null
+    if (showWelcome && lastAction.value) {
+      ElMessage({
+        type: 'info',
+        duration: 5000,
+        showClose: true,
+        message: `欢迎回来 ${me.username || '用户'}，上次操作：${lastAction.value.action}（${lastAction.value.created_at}）`,
+      })
+      welcomeShown.value = true
+    }
+  } catch {
+    user.value = null; tokenStore.clear()
+  }
+
+  if (user.value && !lastAction.value) {
+    try {
+      const last = await auditLast()
+      lastAction.value = last?.last || null
+      if (showWelcome && lastAction.value) {
+        ElMessage({
+          type: 'info',
+          duration: 5000,
+          showClose: true,
+          message: `欢迎回来 ${user.value.username}，上次操作：${lastAction.value.action}（${lastAction.value.created_at}）`,
+        })
+      }
+    } catch {}
+  }
+}
+
+function handleCommand(cmd) {
+  if (cmd === 'profile') router.push('/profile')
+  else if (cmd === 'history') router.push('/history')
+  else if (cmd === 'logout') doLogout()
+  else if (cmd === 'login') router.push('/login')
+}
+
+async function doLogout() {
+  try { await authLogout() } catch {}
+  tokenStore.clear()
+  user.value = null
+  lastAction.value = null
+  ElMessage.success('已退出登录')
+  if (route.meta?.requireAuth) router.push('/dashboard')
+}
+
 onMounted(async () => {
   try {
     const v = await sysVersion()
@@ -35,11 +95,15 @@ onMounted(async () => {
   try { await sysHealth() } catch (e) {
     ElMessage.warning('后端服务未就绪：' + e.message)
   }
+  await refreshMe(true)
 })
 </script>
 
 <template>
-  <el-container style="height:100vh">
+  <!-- 登录页独立布局 -->
+  <router-view v-if="route.path === '/login'"></router-view>
+
+  <el-container v-else style="height:100vh">
     <el-aside width="210px" style="background: var(--nav-bg); color:#fff; display:flex; flex-direction:column">
       <div style="padding:18px 16px; font-weight:700; font-size:16px; border-bottom:1px solid #3a3c40">
         🚀 webstock
@@ -63,6 +127,7 @@ onMounted(async () => {
             @mouseleave="e => !active.endsWith(m.key) && (e.currentTarget.style.background = 'transparent')"
           >
             {{ m.title }}
+            <span v-if="m.requireAuth && !user" style="color:#ff9a3c; margin-left:6px; font-size:11px">登录</span>
           </div>
         </div>
       </el-scrollbar>
@@ -72,7 +137,31 @@ onMounted(async () => {
       <el-header style="background:#fff; border-bottom:1px solid #e5e6eb; display:flex; align-items:center">
         <div style="font-weight:600; font-size:16px">{{ route.meta.title || '' }}</div>
         <div style="flex:1"></div>
-        <div style="color:#86909c; font-size:12px">点击左侧菜单切换模块</div>
+
+        <div v-if="!user" style="display:flex; gap:8px; align-items:center">
+          <div style="color:#86909c; font-size:12px">登录后操作会被记录</div>
+          <el-button type="primary" size="small" @click="$router.push('/login')">登录 / 注册</el-button>
+        </div>
+
+        <el-dropdown v-else trigger="click" @command="handleCommand">
+          <div style="display:flex; align-items:center; gap:8px; cursor:pointer; padding:4px 8px; border-radius:8px"
+               @mouseenter="e => e.currentTarget.style.background = '#f2f3f5'"
+               @mouseleave="e => e.currentTarget.style.background = 'transparent'">
+            <el-avatar :size="30" style="background:#4e83fd">{{ (user.username || 'U').charAt(0).toUpperCase() }}</el-avatar>
+            <div style="font-size:13px">
+              <div style="font-weight:600">{{ user.username }}</div>
+              <div v-if="lastAction" style="color:#86909c; font-size:11px">上次：{{ lastAction.action }}</div>
+            </div>
+            <el-icon :size="12"><CaretBottom /></el-icon>
+          </div>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="profile">👤 个人中心</el-dropdown-item>
+              <el-dropdown-item command="history">🧾 操作历史</el-dropdown-item>
+              <el-dropdown-item divided command="logout">🚪 退出登录</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
       </el-header>
       <el-main>
         <router-view v-slot="{ Component }">
@@ -84,6 +173,20 @@ onMounted(async () => {
     </el-container>
   </el-container>
 </template>
+
+<script lang="ts" module="components">
+// 全局图标按需注册（不依赖额外包，手写小图标即可）
+import { defineComponent, h } from 'vue'
+const CaretBottom = defineComponent({
+  name: 'CaretBottom',
+  render() {
+    return h('svg', { width: '12', height: '12', viewBox: '0 0 12 12' }, [
+      h('path', { d: 'M3 5l3 3 3-3z', fill: 'currentColor' })
+    ])
+  },
+})
+export { CaretBottom }
+</script>
 
 <style scoped>
 .fade-enter-active, .fade-leave-active { transition: opacity .15s ease; }

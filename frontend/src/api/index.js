@@ -3,6 +3,19 @@ import http, { unwrap } from './http'
 export const sysHealth = () => http.get('/system/healthz').then(unwrap)
 export const sysVersion = () => http.get('/system/version').then(unwrap)
 
+// ---------- 认证 ----------
+export const authRegister = (p) => http.post('/auth/register', p).then(unwrap)
+export const authLogin = (p) => http.post('/auth/login', p).then(unwrap)
+export const authLogout = () => http.post('/auth/logout').then(unwrap)
+export const authMe = () => http.get('/auth/me').then(unwrap)
+export const authChangePwd = (p) => http.post('/auth/change-password', p).then(unwrap)
+
+// ---------- 审计历史 ----------
+export const auditLast = () => http.get('/audit/last').then(unwrap)
+export const auditHistory = (p) => http.get('/audit/history', { params: p }).then(unwrap)
+export const auditSummary = () => http.get('/audit/summary').then(unwrap)
+export const auditDetail = (id) => http.get(`/audit/detail/${id}`).then(unwrap)
+
 export const stScan = (p) => http.post('/market/st/scan', p).then(unwrap)
 export const stReinstate = (p) => http.post('/market/st-reinstate/scan', p).then(unwrap)
 export const thermometer = () => http.get('/market/thermometer').then(unwrap)

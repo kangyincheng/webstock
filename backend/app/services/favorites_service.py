@@ -45,6 +45,7 @@ class FavoritesService:
             c.executescript("""
             CREATE TABLE IF NOT EXISTS favorite_stocks (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL DEFAULT 0,
                 code TEXT NOT NULL,
                 name TEXT NOT NULL,
                 buy_date TEXT,
@@ -55,6 +56,7 @@ class FavoritesService:
                 updated_at TEXT DEFAULT (datetime('now','localtime'))
             );
             CREATE INDEX IF NOT EXISTS idx_fav_code ON favorite_stocks(code);
+            CREATE INDEX IF NOT EXISTS idx_fav_user ON favorite_stocks(user_id);
 
             CREATE TABLE IF NOT EXISTS favorite_events (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -67,14 +69,23 @@ class FavoritesService:
             CREATE INDEX IF NOT EXISTS idx_evt_fav ON favorite_events(fav_id);
             CREATE INDEX IF NOT EXISTS idx_evt_due ON favorite_events(due_date);
             """)
+            # 老表升级：加 user_id 列
+            try:
+                cols = [r[1] for r in c.execute("PRAGMA table_info(favorite_stocks)").fetchall()]
+                if "user_id" not in cols:
+                    c.execute("ALTER TABLE favorite_stocks ADD COLUMN user_id INTEGER NOT NULL DEFAULT 0")
+                    c.execute("CREATE INDEX IF NOT EXISTS idx_fav_user ON favorite_stocks(user_id)")
+            except Exception:
+                pass
 
     # --------- CRUD ---------
     def add(self, data: Dict[str, Any]) -> int:
         with self._conn() as c:
             cur = c.execute(
-                """INSERT INTO favorite_stocks(code,name,buy_date,buy_price,current_price,note)
-                   VALUES (?,?,?,?,?,?)""",
-                (data.get("code", ""), data.get("name", ""),
+                """INSERT INTO favorite_stocks(user_id,code,name,buy_date,buy_price,current_price,note)
+                   VALUES (?,?,?,?,?,?,?)""",
+                (int(data.get("user_id") or 0),
+                 data.get("code", ""), data.get("name", ""),
                  data.get("buy_date") or None,
                  float(data["buy_price"]) if data.get("buy_price") not in (None, "") else None,
                  float(data["current_price"]) if data.get("current_price") not in (None, "") else None,
@@ -94,9 +105,10 @@ class FavoritesService:
             if not row:
                 return False
             c.execute(
-                """UPDATE favorite_stocks SET code=?,name=?,buy_date=?,buy_price=?,
+                """UPDATE favorite_stocks SET user_id=?,code=?,name=?,buy_date=?,buy_price=?,
                    current_price=?,note=?,updated_at=datetime('now','localtime') WHERE id=?""",
-                (data.get("code", ""), data.get("name", ""),
+                (int(data.get("user_id") or 0),
+                 data.get("code", ""), data.get("name", ""),
                  data.get("buy_date") or None,
                  float(data["buy_price"]) if data.get("buy_price") not in (None, "") else None,
                  float(data["current_price"]) if data.get("current_price") not in (None, "") else None,
@@ -138,6 +150,7 @@ class FavoritesService:
                 gain = round((s["current_price"] - s["buy_price"]) / s["buy_price"] * 100, 2)
             out.append({
                 "id": s["id"],
+                "user_id": s.get("user_id") or 0,
                 "code": s["code"],
                 "name": s["name"],
                 "buy_date": s["buy_date"],
