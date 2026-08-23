@@ -1,0 +1,119 @@
+# webstock Nginx 443 启用片段（证书到位后由部署脚本写入 /etc/nginx/conf.d/webstock-https.conf）
+# 注意：如果 80 段里不跳，会出现 HTTP/HTTPS 双入口；我们写入后 80 还会兜底提供 ACME challenge。
+
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name www.jeoj.com jeoj.com 8.130.158.196;
+
+    # —— SSL 证书路径：certbot 默认目录 ——
+    ssl_certificate     /etc/letsencrypt/live/www.jeoj.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/www.jeoj.com/privkey.pem;
+    ssl_trusted_certificate /etc/letsencrypt/live/www.jeoj.com/chain.pem;
+
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_ciphers         ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305;
+    ssl_prefer_server_ciphers on;
+    ssl_session_cache   shared:SSL:50m;
+    ssl_session_timeout 1d;
+    ssl_session_tickets off;
+
+    # OCSP Stapling（阿里云 DNS 要能出网访问）
+    ssl_stapling        on;
+    ssl_stapling_verify on;
+    resolver [::1]:53 223.5.5.5 114.114.114.114 valid=300s;
+    resolver_timeout 5s;
+
+    # HSTS（1 年，一旦启用要慎重，浏览器会强制 HTTPS）
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;
+    add_header X-Content-Type-Options nosniff always;
+    add_header X-Frame-Options SAMEORIGIN always;
+    add_header Referrer-Policy strict-origin-when-cross-origin always;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # 根域名 → 301 www（规范化 canonical 域名）
+    if ($host = "jeoj.com") {
+        return 301 https://www.jeoj.com$request_uri;
+    }
+    # 直接 IP 访问也跳转 www（避免重复收录）
+    if ($host = "8.130.158.196") {
+        return 301 https://www.jeoj.com$request_uri;
+    }
+
+    # ---------- 静态资源 ----------
+    location /assets/ {
+        alias /usr/share/nginx/html/assets/;
+        expires 1y;
+        add_header Cache-Control "public, max-age=31536000, immutable";
+        add_header X-Content-Type-Options "nosniff";
+        access_log off;
+        try_files $uri =404;
+    }
+    location ~ ^/(favicon\.ico|robots\.txt|manifest\.webmanifest)$ {
+        expires 7d;
+        access_log off;
+        try_files $uri =404;
+    }
+
+    # ---------- WebSocket ----------
+    location /ws/ {
+        proxy_pass http://webstock_api;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade        $http_upgrade;
+        proxy_set_header Connection     "upgrade";
+        proxy_set_header Host           $host;
+        proxy_set_header X-Real-IP      $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout  3600s;
+        proxy_send_timeout  3600s;
+        proxy_buffering off;
+        proxy_cache off;
+    }
+
+    # ---------- API ----------
+    location /api/ {
+        proxy_pass http://webstock_api;
+        proxy_http_version 1.1;
+        proxy_set_header Connection       "";
+        proxy_set_header Host             $host;
+        proxy_set_header X-Real-IP        $remote_addr;
+        proxy_set_header X-Forwarded-For  $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_connect_timeout  10s;
+        proxy_send_timeout     600s;
+        proxy_read_timeout     600s;
+        gzip on;
+    }
+
+    # ---------- SPA fallback ----------
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}
+
+# 启用 443 之后，把 80 server 里的非 ACME 请求也 301 到 https://www.jeoj.com
+# 实现方式：在 80 server 的 location / 前优先 rewrite，直接在这个片段里追加一条覆盖 80 的 "/" 的做法不稳，
+# 改为通过部署脚本在主 nginx.conf 的 80 server 里注入一段「非 ACME → 301 https://www.jeoj.com」。
+# 也可以什么都不做：用户第一次 HTTP 访问会被下面这段额外的 80→443 301 server（独立）接管。
+
+# 独立 80 跳转 server（与主 80 server 冲突？是的，但 nginx 选具体 server_name 优先于 _；
+# 为了避免 default_server 冲突，这里用更细的 server_name 且不抢 default_server。
+server {
+    listen 80;
+    listen [::]:80;
+    server_name www.jeoj.com jeoj.com;
+
+    # 永远放行 ACME（webroot 模式）
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/acme-challenge;
+        default_type text/plain;
+        try_files $uri =404;
+        access_log off;
+    }
+    location / {
+        return 301 https://www.jeoj.com$request_uri;
+    }
+}

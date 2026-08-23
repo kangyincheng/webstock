@@ -152,3 +152,136 @@ class TushareClient:
             return None
         df.to_csv(cache, index=False)
         return df
+
+    # --------- 板块热度：按 industry 聚合 daily ---------
+    def sector_heat(self, trade_date=None, use_cache=True, progress_callback=None):
+        """返回 DataFrame。字段：rank/industry/count/avg_chg/med_chg/amount/up_cnt/down_cnt/limit_up."""
+        def log(msg):
+            if progress_callback:
+                progress_callback(msg)
+        # 若 token 未配置，返回 mock
+        if not self.is_configured():
+            log("未配置 Tushare token，返回演示板块数据")
+            return self._mock_sector_heat()
+        try:
+            daily = self.fetch_daily(trade_date=trade_date)
+            basic = self.fetch_stock_basic()
+            if daily is None or daily.empty or basic is None or basic.empty:
+                return self._mock_sector_heat()
+            df = daily.merge(basic[["ts_code", "name", "industry"]], on="ts_code", how="left")
+            df["industry"] = df["industry"].fillna("其他")
+            df["amount_wan"] = pd.to_numeric(df.get("amount", 0), errors="coerce") / 10000.0
+            df["pct_chg"] = pd.to_numeric(df.get("pct_chg", 0), errors="coerce")
+            def _agg(g):
+                up = int((g["pct_chg"] > 0).sum())
+                down = int((g["pct_chg"] < 0).sum())
+                limit_up = int((g["pct_chg"] >= 9.8).sum())
+                return pd.Series({
+                    "count": len(g),
+                    "avg_chg": round(float(g["pct_chg"].mean()), 2),
+                    "med_chg": round(float(g["pct_chg"].median()), 2),
+                    "amount": round(float(g["amount_wan"].sum()), 2),
+                    "up_cnt": up,
+                    "down_cnt": down,
+                    "limit_up": limit_up,
+                })
+            out = df.groupby("industry", dropna=False).apply(_agg).reset_index()
+            out = out.sort_values("avg_chg", ascending=False).reset_index(drop=True)
+            out.insert(0, "rank", out.index + 1)
+            log(f"板块聚合完成：{len(out)} 个行业")
+            return out
+        except Exception as e:
+            log(f"板块热度异常，回退演示数据：{e}")
+            return self._mock_sector_heat()
+
+    @staticmethod
+    def _mock_sector_heat():
+        import random
+        inds = ["银行", "半导体", "医药生物", "新能源", "白酒", "计算机", "房地产",
+                "汽车", "煤炭", "钢铁", "电力", "有色金属", "国防军工", "通信", "家电",
+                "食品饮料", "机械设备", "化工", "农林牧渔", "传媒"]
+        rows = []
+        for i, ind in enumerate(sorted(inds)):
+            avg = round(random.uniform(-5, 5), 2)
+            cnt = random.randint(20, 150)
+            rows.append({
+                "rank": 0, "industry": ind, "count": cnt,
+                "avg_chg": avg, "med_chg": round(avg + random.uniform(-1,1),2),
+                "amount": round(random.uniform(10, 1000),2),
+                "up_cnt": random.randint(0, cnt),
+                "down_cnt": random.randint(0, cnt),
+                "limit_up": random.randint(0, 8),
+            })
+        rows.sort(key=lambda r: r["avg_chg"], reverse=True)
+        for i, r in enumerate(rows, 1):
+            r["rank"] = i
+        import pandas as pd
+        return pd.DataFrame(rows)
+
+    # --------- 热门股票 TOP N ---------
+    def hot_stocks(self, trade_date=None, sort_by="pct_chg", top_n=50,
+                   use_cache=True, progress_callback=None):
+        def log(msg):
+            if progress_callback:
+                progress_callback(msg)
+        if not self.is_configured():
+            log("未配置 Tushare token，返回演示热门股票")
+            return self._mock_hot(top_n)
+        try:
+            daily = self.fetch_daily(trade_date=trade_date)
+            basic = self.fetch_stock_basic()
+            if daily is None or daily.empty or basic is None or basic.empty:
+                return self._mock_hot(top_n)
+            df = daily.merge(basic[["ts_code", "name", "industry"]], on="ts_code", how="left")
+            for c in ["close", "pct_chg", "amount", "vol"]:
+                if c in df.columns:
+                    df[c] = pd.to_numeric(df[c], errors="coerce")
+            if sort_by not in ("pct_chg", "amount", "vol"):
+                sort_by = "pct_chg"
+            df = df.sort_values(sort_by, ascending=False).head(top_n).reset_index(drop=True)
+            df.insert(0, "rank", df.index + 1)
+            df = df.rename(columns={
+                "ts_code": "code",
+                "name": "name",
+                "industry": "industry",
+                "trade_date": "trade_date",
+            })
+            if "amount" in df.columns:
+                df["amount"] = (df["amount"] / 10000.0).round(2)
+                df = df.rename(columns={"amount": "amount(万元)"})
+            if "vol" in df.columns:
+                df = df.rename(columns={"vol": "vol(手)"})
+            log(f"热门股票：{len(df)} 条，按 {sort_by}")
+            return df
+        except Exception as e:
+            log(f"热门股票异常，回退演示数据：{e}")
+            return self._mock_hot(top_n)
+
+    @staticmethod
+    def _mock_hot(n=50):
+        import random
+        import pandas as pd
+        random.seed(42)
+        prefix = [("sh.60", "60"), ("sz.00", "00"), ("sh.688", "688"), ("sz.30", "30")]
+        names = ["东财科技", "恒瑞医药", "宁德时代", "贵州茅台", "招商银行", "比亚迪",
+                 "中国平安", "隆基绿能", "北方华创", "长江电力", "海康威视", "药明康德",
+                 "伊利股份", "美的集团", "海尔智家", "紫金矿业", "中信证券", "立讯精密"]
+        inds = ["半导体", "医药", "新能源", "白酒", "银行", "汽车", "保险", "光伏", "电力",
+                "电子", "消费", "家电", "有色", "券商"]
+        rows = []
+        for i in range(n):
+            p, suf = random.choice(prefix)
+            code = p + str(random.randint(int(suf + "0001"), int(suf + "9999")))
+            pct = round(random.uniform(-10, 10), 2)
+            close = round(random.uniform(3, 300), 2)
+            rows.append({
+                "rank": i + 1,
+                "name": random.choice(names),
+                "code": code,
+                "industry": random.choice(inds),
+                "close": close,
+                "pct_chg(%)": pct,
+                "amount(万元)": round(random.uniform(100, 200000), 2),
+                "vol(手)": random.randint(1000, 5000000),
+            })
+        return pd.DataFrame(rows)

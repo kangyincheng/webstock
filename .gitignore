@@ -17,12 +17,37 @@ dist/
 venv/
 env/
 
+# === 测试脚本（本地冒烟用，不上传）===
+_e2e_auth_smoke.py
+_admin_smoke.py
+
 # === 数据与缓存 ===
+# 根目录 data / models（原桌面版）
 data/
 data_cache/
-*.csv
-!requirements.txt
 models/
+*.csv
+
+# 新增 backend 下的数据与模型（持久化，但不上传仓库）
+backend/data/
+backend/models/
+backend/**/*.db
+backend/**/*.sqlite
+backend/**/*.sqlite3
+
+# === 前端 Node 构建产物 ===
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# === 部署日志 ===
+deploy/nginx/logs/
+*.log
 
 # === IDE / OS ===
 .idea/

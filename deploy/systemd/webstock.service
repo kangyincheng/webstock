@@ -1,0 +1,44 @@
+[Unit]
+Description=webstock FastAPI backend (Gunicorn + UvicornWorker)
+After=network.target redis.target
+
+[Service]
+Type=simple
+User=webstock
+Group=webstock
+WorkingDirectory=/opt/webstock
+Environment=PATH=/opt/webstock/.venv/bin:/usr/local/bin:/usr/bin:/bin
+Environment=TZ=Asia/Shanghai
+Environment=PYTHONUNBUFFERED=1
+Environment=PORT=8000
+Environment=WORKERS=2
+Environment=REDIS_URL=redis://127.0.0.1:6379/0
+Environment=TUSHARE_TOKEN_FILE=/opt/webstock/tushare_token.txt
+# 若 TUSHARE_TOKEN 环境变量未设置，services/market_data.py 会 fallback 读文件
+
+ExecStart=/opt/webstock/.venv/bin/gunicorn \
+    -k uvicorn.workers.UvicornWorker \
+    -w ${WORKERS} \
+    -b 127.0.0.1:${PORT} \
+    --timeout 600 \
+    --keep-alive 30 \
+    --max-requests 1000 --max-requests-jitter 200 \
+    --access-logfile /var/log/webstock/access.log \
+    --error-logfile  /var/log/webstock/error.log \
+    backend.app.main:app
+
+ExecReload=/bin/kill -USR2 $MAINPID
+Restart=on-failure
+RestartSec=5s
+KillMode=mixed
+
+LimitNOFILE=65535
+
+ProtectSystem=strict
+ReadWritePaths=/opt/webstock/backend/data /opt/webstock/backend/models /var/log/webstock
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target
