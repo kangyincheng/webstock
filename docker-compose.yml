@@ -51,7 +51,8 @@ services:
     environment:
       - TZ=Asia/Shanghai
     volumes:
-      - ./deploy/nginx/webstock.conf:/etc/nginx/conf.d/default.conf:ro
+      # 挂载我们优化好的完整 nginx.conf（含 events/http/server 全部段）替换默认主配置
+      - ./deploy/nginx/webstock.conf:/etc/nginx/nginx.conf:ro
       # 可选：挂载证书目录（需将 证书放到 ./deploy/nginx/certs/ 下）
       # - ./deploy/nginx/certs:/etc/nginx/certs:ro
       # 直接使用构建好的静态资源（比走后端 fallback 更快）

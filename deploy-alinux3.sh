@@ -278,17 +278,25 @@ deploy_baremetal() {
     systemctl is-active --quiet webstock && info "webstock backend 运行中" || err "backend 启动失败，请查看 journalctl -u webstock"
 
     # ---- Nginx 配置 ----
-    info "安装 Nginx 配置..."
-    sudo cp deploy/nginx/webstock.conf /etc/nginx/conf.d/webstock.conf
-    # 使用 Nginx 主配置 + include 方式；如果 baremetal 自带 /etc/nginx/nginx.conf 已经包含 conf.d/*.conf
-    # 这里修正 upstream server 为 127.0.0.1:8000
-    sudo sed -i 's|server webstock:8000|server 127.0.0.1:8000|' /etc/nginx/conf.d/webstock.conf
+    info "安装 Nginx 配置（替换主 nginx.conf，因为 webstock.conf 是完整优化版）..."
+    # 备份原来的主配置（保留一次）
+    [[ -f /etc/nginx/nginx.conf && ! -f /etc/nginx/nginx.conf.bak.webstock ]] \
+        && sudo cp /etc/nginx/nginx.conf /etc/nginx/nginx.conf.bak.webstock
+    sudo cp deploy/nginx/webstock.conf /etc/nginx/nginx.conf
+    # upstream：baremetal 下 webstock 容器名不存在，改为 127.0.0.1:8000
+    sudo sed -i 's|server webstock:8000|server 127.0.0.1:8000|' /etc/nginx/nginx.conf
+    # server_name 追加 _ 以防 Host 异常（但 IP 已经是 8.130.158.196）
     # SPA root 改成项目下的 frontend/dist
-    sudo sed -i "s|root /usr/share/nginx/html;|root $APP_DIR/frontend/dist;|g" /etc/nginx/conf.d/webstock.conf
-    sudo sed -i "s|alias /usr/share/nginx/html/assets/;|alias $APP_DIR/frontend/dist/assets/;|" /etc/nginx/conf.d/webstock.conf
-    sudo mkdir -p "$APP_DIR/deploy/nginx/logs"
-    sudo nginx -t || err "Nginx 配置错误，请检查 /etc/nginx/conf.d/webstock.conf"
-    sudo systemctl reload nginx
+    sudo sed -i "s|root /usr/share/nginx/html;|root $APP_DIR/frontend/dist;|g" /etc/nginx/nginx.conf
+    sudo sed -i "s|alias /usr/share/nginx/html/assets/;|alias $APP_DIR/frontend/dist/assets/;|" /etc/nginx/nginx.conf
+    # 停掉默认 default.conf（会与主配置 80 default_server 冲突）
+    if [[ -f /etc/nginx/conf.d/default.conf ]]; then
+        sudo mv /etc/nginx/conf.d/default.conf /etc/nginx/conf.d/default.conf.disabled 2>/dev/null || true
+    fi
+    sudo mkdir -p "$APP_DIR/deploy/nginx/logs" /var/log/nginx
+    sudo nginx -t || err "Nginx 配置错误，请查看 /etc/nginx/nginx.conf"
+    sudo systemctl enable nginx
+    sudo systemctl restart nginx
 
     # ---- 防火墙（Alinux 3 默认 firewalld）----
     if command -v firewall-cmd >/dev/null 2>&1 && firewall-cmd --state >/dev/null 2>&1; then
