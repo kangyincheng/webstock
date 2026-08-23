@@ -14,20 +14,29 @@
 set -euo pipefail
 
 PUBLIC_IP="8.130.158.196"
+DOMAIN="${DOMAIN:-www.jeoj.com}"      # ← 你的主域名
+APEX_DOMAIN="${DOMAIN#www.}"
 APP_DIR="/opt/webstock"
 MODE="baremetal"
-TUSHARE_TOKEN=""
+TUSHARE_TOKEN="${TUSHARE_TOKEN:-}"
+SSL_EMAIL="${SSL_EMAIL:-admin@${APEX_DOMAIN}}"
+ENABLE_SSL="${ENABLE_SSL:-auto}"
 for arg in "$@"; do
   case "$arg" in
-    --mode=*)    MODE="${arg#*=}" ;;
-    --tushare=*) TUSHARE_TOKEN="${arg#*=}" ;;
-    --app-dir=*) APP_DIR="${arg#*=}" ;;
+    --mode=*)       MODE="${arg#*=}" ;;
+    --tushare=*)    TUSHARE_TOKEN="${arg#*=}" ;;
+    --app-dir=*)    APP_DIR="${arg#*=}" ;;
+    --ssl-email=*)  SSL_EMAIL="${arg#*=}" ;;
+    --enable-ssl=*) ENABLE_SSL="${arg#*=}" ;;
+    --domain=*)     DOMAIN="${arg#*=}" ;;
   esac
 done
 
 echo "▶ 目标公网 IP：${PUBLIC_IP}"
+echo "▶ 主域名       ：${DOMAIN}（apex=${APEX_DOMAIN}）"
 echo "▶ 部署模式     ：${MODE}"
 echo "▶ 部署目录     ：${APP_DIR}"
+echo "▶ SSL 通知邮箱 ：${SSL_EMAIL}"
 
 ###############################################
 # 0. 公网可达性预检（ECS 内部自检出口连通性）
@@ -124,9 +133,8 @@ SECURITY_GROUP_HINT
 ###############################################
 # 5. 调用通用 deploy-alinux3.sh
 ###############################################
-echo
-echo "[5/6] 调用 deploy-alinux3.sh (mode=${MODE}) ..."
-EXTRA_ARGS=(--mode="${MODE}" --domain="${PUBLIC_IP}" --app-dir="${APP_DIR}")
+echo -e "\n\033[32m[5/6]\033[0m  调用 deploy-alinux3.sh (mode=${MODE}) ..."
+EXTRA_ARGS=(--mode="${MODE}" --domain="${DOMAIN}" --app-dir="${APP_DIR}" --ssl-email="${SSL_EMAIL}" --enable-ssl="${ENABLE_SSL}")
 if [[ -n "${TUSHARE_TOKEN}" ]]; then
   EXTRA_ARGS+=(--tushare="${TUSHARE_TOKEN}")
 fi
@@ -136,17 +144,24 @@ bash deploy-alinux3.sh "${EXTRA_ARGS[@]}"
 # 6. 自检公网是否可达
 ###############################################
 echo
-echo "[6/6] 公网可达性自检（http://${PUBLIC_IP}）..."
+echo "[6/6] 公网可达性自检（http://${DOMAIN} / http://${PUBLIC_IP}）..."
 sleep 3
+DOM_OK="" IP_OK=""
 for i in 1 2 3 4 5 6 7 8; do
-  CODE="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 6 "http://${PUBLIC_IP}/" || true)"
-  if [[ "$CODE" == "200" ]]; then
-    echo "✅ 本机自测成功！HTTP ${CODE}  ——  网页已对外服务：http://${PUBLIC_IP}"
-    break
+  if [[ -z "$DOM_OK" ]]; then
+    C="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 6 "http://${DOMAIN}/" || true)"
+    if [[ "$C" == "200" || "$C" == "301" ]]; then DOM_OK=1; fi
   fi
-  echo "   第 $i 次自测 HTTP=${CODE}，等待 3s..."
+  if [[ -z "$IP_OK" ]]; then
+    C="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 6 "http://${PUBLIC_IP}/" || true)"
+    if [[ "$C" == "200" || "$C" == "301" ]]; then IP_OK=1; fi
+  fi
+  [[ -n "$DOM_OK" && -n "$IP_OK" ]] && break
+  echo "   第 $i 次自测，等待 3s..."
   sleep 3
 done
+[[ -n "$DOM_OK" ]] && echo "✅ ${DOMAIN} 外部可访问" || echo "⚠️  ${DOMAIN} 暂未返回 200/301（若刚开了 HTTPS 301 是正常的，https 再测一次）"
+[[ -n "$IP_OK"  ]] && echo "✅ ${PUBLIC_IP} 外部可访问"  || echo "⚠️  ${PUBLIC_IP} 仍不可达，请检查安全组 TCP 80 是否已放行 0.0.0.0/0"
 
 echo
 echo "====================================================================="

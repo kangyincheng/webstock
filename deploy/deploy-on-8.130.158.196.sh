@@ -11,12 +11,17 @@
 # ============================================================================
 set -euo pipefail
 TUSHARE_TOKEN="${TUSHARE_TOKEN:-}"
+SSL_EMAIL="${SSL_EMAIL:-admin@jeoj.com}"     # ← 改成你自己的通知邮箱
+ENABLE_SSL="${ENABLE_SSL:-auto}"
 PUBLIC_IP="8.130.158.196"
+DOMAIN="www.jeoj.com"
+APEX_DOMAIN="jeoj.com"
 APP_DIR="/opt/webstock"
 
 cat <<EOF
 ═══════════════════════════════════════════════════════════════════════════
-  webstock @ ${PUBLIC_IP}  ·  极速部署（Baremetal / 推荐，性能 > Docker）
+  webstock @ ${PUBLIC_IP} · ${DOMAIN} · HTTPS + HSTS 全链路开启
+  SSL 通知邮箱: ${SSL_EMAIL}  ·  ENABLE_SSL=${ENABLE_SSL}
 ═══════════════════════════════════════════════════════════════════════════
 EOF
 
@@ -90,7 +95,7 @@ fi
 # Step 3 · 调用通用 deploy-alinux3.sh 完成 90% 工作
 ###############################################
 echo -e "\n\033[32m[3/8]\033[0m  调用 deploy-alinux3.sh --mode=baremetal..."
-ARGS=(--mode=baremetal --domain="${PUBLIC_IP}")
+ARGS=(--mode=baremetal --domain="${DOMAIN}" --ssl-email="${SSL_EMAIL}" --enable-ssl="${ENABLE_SSL}")
 [[ -n "${TUSHARE_TOKEN}" ]] && ARGS+=(--tushare="${TUSHARE_TOKEN}")
 bash deploy-alinux3.sh "${ARGS[@]}"
 
@@ -142,20 +147,29 @@ for PATH in \
 done
 
 ###############################################
-# Step 8 · 出口
+# Step 8 · 出口（含 HTTPS 301 检查）
 ###############################################
 echo
 echo "═══════════════════════════════════════════════════════════════════════════"
-echo "   🎉 部署完成！浏览器打开："
-echo "        http://${PUBLIC_IP}"
+echo "   🎉 部署完成！"
+for URL in "http://${DOMAIN}" "https://${DOMAIN}" "http://${APEX_DOMAIN}" "https://${APEX_DOMAIN}" "http://${PUBLIC_IP}"; do
+  echo "     $URL"
+done
+echo
+echo "   规范化跳转预期："
+echo "     http://jeoj.com       → 301 → https://www.jeoj.com"
+echo "     http://8.130.158.196  → 301 → https://www.jeoj.com （HTTPS 启用后）"
 echo
 echo "   常用命令："
 echo "     查看后端日志    sudo journalctl -u webstock -fn 80"
 echo "     重启后端        sudo systemctl restart webstock"
 echo "     重启 Nginx      sudo systemctl restart nginx"
+echo "     手动续期 SSL    sudo certbot renew --dry-run"
 echo "     更新代码        cd ${APP_DIR} && git pull --ff-only"
 echo "                       && sudo systemctl restart webstock"
 echo
-echo "   ⚠️  如仍打不开，必查：阿里云 ECS 控制台 → 安全组 → 入方向 必须放行 TCP 80（0.0.0.0/0）"
-echo "   （ECS 本机 firewalld 已放行了，剩下就是云厂商安全组 ACL）"
+echo "   ⚠️  若浏览器仍提示不安全："
+echo "      a) 阿里云安全组：TCP 443 必须放行 0.0.0.0/0"
+echo "      b) 证书申请成功后，检查是否已在 /etc/letsencrypt/live/www.jeoj.com/"
+echo "      c) 如启用 CDN：别打开 CDN 的「强制 HTTPS」让我们自己跳，避免 301 死循环"
 echo "═══════════════════════════════════════════════════════════════════════════"

@@ -29,7 +29,9 @@ APP_DIR="/opt/webstock"
 HTTP_PORT="80"
 HTTPS_PORT="443"
 WORKERS="$(nproc)"
-DOMAIN=""
+DOMAIN="www.jeoj.com"               # 默认用我们的主域名
+SSL_EMAIL=""                        # 留空时会 fallback 到 admin@<主域名>
+ENABLE_SSL="auto"                   # auto=DNS 已解时才申请，yes=强制申请，no=跳过
 TUSHARE_TOKEN=""
 SKIP_BUILD="no"
 
@@ -41,6 +43,8 @@ for arg in "$@"; do
         --https-port=*)  HTTPS_PORT="${arg#*=}" ;;
         --workers=*)     WORKERS="${arg#*=}" ;;
         --domain=*)      DOMAIN="${arg#*=}" ;;
+        --ssl-email=*)   SSL_EMAIL="${arg#*=}" ;;
+        --enable-ssl=*)  ENABLE_SSL="${arg#*=}" ;;
         --tushare=*)     TUSHARE_TOKEN="${arg#*=}" ;;
         --skip-build)    SKIP_BUILD="yes" ;;
         -h|--help)
@@ -51,7 +55,9 @@ for arg in "$@"; do
   --http-port=80            Nginx 对外 HTTP 端口
   --https-port=443          Nginx 对外 HTTPS 端口
   --workers=N               gunicorn workers 数（默认 nproc）
-  --domain=your.domain.com  设置后会写入 Nginx server_name
+  --domain=www.jeoj.com     主域名（默认 www.jeoj.com，支持形如 a.com 同时带 www）
+  --ssl-email=you@mail.com  Let's Encrypt 通知邮箱，缺省为 admin@主域名
+  --enable-ssl=auto|yes|no  auto=DNS 解析到本机公网时自动申请（默认）
   --tushare=xxxxx           设置 tushare token（写进 tushare_token.txt）
   --skip-build              Docker 模式下跳过 docker build
   -h, --help                本帮助
@@ -61,6 +67,12 @@ EOF
         *) warn "未知参数：$arg（忽略）" ;;
     esac
 done
+
+# 主域名（去掉 www. 前缀取 apex）
+APEX_DOMAIN="${DOMAIN#www.}"
+if [[ -z "$SSL_EMAIL" ]]; then
+  SSL_EMAIL="admin@${APEX_DOMAIN}"
+fi
 
 # ---- 环境预检 ----
 [[ "$(uname -s)" == "Linux" ]] || err "仅支持 Linux"
@@ -132,6 +144,109 @@ install_nginx_alinux3() {
     info "Nginx 已启动"
 }
 
+###############################################
+# Let's Encrypt 证书申请（certbot webroot）
+# 前置：DNS 已解析、80 端口已放行、ACME challenge location 已在 nginx.conf
+###############################################
+install_certbot_alinux3() {
+    if command -v certbot >/dev/null 2>&1; then
+      info "certbot 已存在（$(certbot --version 2>&1)）"
+      return
+    fi
+    info "[SSL] 安装 certbot（Python 3.11 venv，独立于项目 venv）..."
+    if ! command -v python3.11 >/dev/null 2>&1; then
+      install_python311_alinux3
+    fi
+    sudo python3.11 -m venv /opt/certbot-venv
+    # shellcheck disable=SC1091
+    sudo /opt/certbot-venv/bin/python -m pip install --upgrade pip setuptools wheel 2>&1 | tail -2
+    sudo /opt/certbot-venv/bin/python -m pip install --no-cache-dir certbot 2>&1 | tail -3
+    sudo ln -sf /opt/certbot-venv/bin/certbot /usr/local/bin/certbot
+    command -v certbot >/dev/null 2>&1 || err "certbot 安装失败"
+    info "certbot ready: $(certbot --version 2>&1)"
+}
+
+dns_resolves_to_this_host() {
+  # 判断域名 A 记录是否解析到本机公网 IP
+  local host="$1"
+  [[ -z "$host" ]] && return 1
+  local pub
+  pub="$(curl -sS --max-time 5 https://api.ipify.org 2>/dev/null || true)"
+  [[ -z "$pub" ]] && { warn "无法获取本机出口 IP，跳过 SSL 预检"; return 1; }
+  local resolved
+  resolved="$( (dig +short -t A "$host" 2>/dev/null || host -t A "$host" 2>/dev/null | awk '/has address/{print $4}') | head -1 )"
+  [[ -z "$resolved" ]] && return 1
+  if [[ "$resolved" == "$pub" ]]; then
+    info "DNS OK: $host → $resolved (本机公网 $pub)"
+    return 0
+  fi
+  warn "DNS 未对齐: $host → $resolved，本机出口 IP = $pub（若在 NAT 下可忽略此校验并 --enable-ssl=yes）"
+  return 1
+}
+
+issue_letsencrypt_webroot() {
+  # 域名清单：www.jeoj.com + jeoj.com
+  local DOMAINS_ARGS=("-d" "$DOMAIN")
+  if [[ "$APEX_DOMAIN" != "$DOMAIN" ]]; then
+    DOMAINS_ARGS+=("-d" "$APEX_DOMAIN")
+  fi
+
+  # ACME webroot 目录（与 nginx.conf 中 location ^~ /.well-known/acme-challenge/ 一致）
+  sudo mkdir -p /var/www/acme-challenge
+  # 测试 ACME 回显（certbot 会校验）
+  local test_token="webstock-probe-$RANDOM"
+  echo -n "$test_token" | sudo tee /var/www/acme-challenge/.probe >/dev/null
+  local http_code
+  http_code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 8 "http://${DOMAIN}/.well-known/acme-challenge/.probe" 2>/dev/null || true)"
+  sudo rm -f /var/www/acme-challenge/.probe
+  info "ACME 连通性预检 http://${DOMAIN}/.well-known/acme-challenge/ → HTTP $http_code"
+
+  # certbot certonly --webroot -w /var/www/acme-challenge -d www.jeoj.com -d jeoj.com --email ... --non-interactive
+  set +e
+  sudo certbot certonly --webroot -w /var/www/acme-challenge \
+      "${DOMAINS_ARGS[@]}" \
+      --email "$SSL_EMAIL" \
+      --agree-tos --no-eff-email --non-interactive \
+      --keep-until-expiring \
+      2>&1 | tail -20
+  local rc=$?
+  set -e
+  if [[ $rc -ne 0 ]]; then
+    warn "certbot 申请失败（rc=$rc），SSL 段不会启用。可以稍后手工执行："
+    warn "   sudo certbot certonly --webroot -w /var/www/acme-challenge -d ${DOMAIN} -d ${APEX_DOMAIN} --email ${SSL_EMAIL}"
+    return 1
+  fi
+  # 写进 crontab 自动续期（每天 03:00 检查）
+  if ! sudo crontab -l 2>/dev/null | grep -q certbot; then
+    (sudo crontab -l 2>/dev/null; echo "0 3 * * * /usr/local/bin/certbot renew --quiet --post-hook 'systemctl reload nginx'") \
+      | sudo crontab -
+    info "已写入每日 certbot renew crontab"
+  fi
+  return 0
+}
+
+enable_https_server_block() {
+  local snippet_src="$1"        # 比如 deploy/nginx/webstock-https.conf.snippet
+  local target_path="$2"        # 比如 /etc/nginx/conf.d/webstock-https.conf 或 $APP_DIR/deploy/nginx/conf.d/webstock-https.conf
+  local replace_upstream="$3"   # baremetal=127.0.0.1:8000  docker=webstock:8000
+  local replace_root="$4"       # baremetal=$APP_DIR/frontend/dist  docker=/usr/share/nginx/html
+
+  [[ -f "$snippet_src" ]] || err "缺失 HTTPS 片段：$snippet_src"
+  sudo mkdir -p "$(dirname "$target_path")"
+  sudo cp "$snippet_src" "$target_path"
+  sudo sed -i "s|server webstock:8000|server ${replace_upstream}|g" "$target_path"
+  sudo sed -i "s|root /usr/share/nginx/html;|root ${replace_root};|g" "$target_path"
+  sudo sed -i "s|alias /usr/share/nginx/html/assets/;|alias ${replace_root%/}/assets/;|" "$target_path"
+
+  # 确认证书真的存在（经验 331399：不存在则 nginx -t 必崩）
+  if [[ ! -f /etc/letsencrypt/live/${DOMAIN}/fullchain.pem ]]; then
+    warn "证书文件 /etc/letsencrypt/live/${DOMAIN}/fullchain.pem 不存在，撤回 443 配置片段避免 nginx -t 失败"
+    sudo rm -f "$target_path"
+    return 1
+  fi
+  return 0
+}
+
 install_docker_alinux3() {
     if command -v docker >/dev/null 2>&1; then
         info "Docker 已存在（$(docker --version)）"
@@ -197,6 +312,8 @@ HTTP_PORT=$HTTP_PORT
 HTTPS_PORT=$HTTPS_PORT
 WORKERS=$WORKERS
 TUSHARE_TOKEN=${TUSHARE_TOKEN}
+DOMAIN=${DOMAIN}
+APEX_DOMAIN=${APEX_DOMAIN}
 EOF
 
     if [[ "$SKIP_BUILD" == "no" ]]; then
@@ -211,21 +328,67 @@ EOF
         info "[Docker] 跳过构建（--skip-build）"
     fi
 
+    # Docker 模式下 conf.d 目录必须存在（即使为空），以及 /var/www/acme-challenge、/etc/letsencrypt
+    sudo mkdir -p "$APP_DIR/deploy/nginx/conf.d" /var/www/acme-challenge /etc/letsencrypt
+    # 先别写入 webstock-https.conf（经验 331399：证书没齐 nginx -t 必崩，容器会起不来）
+    # 若之前跑过留下旧片段，先清掉，等证书申请到位再写
+    sudo rm -f "$APP_DIR/deploy/nginx/conf.d/webstock-https.conf"
+
     info "[Docker] 启动所有服务：Nginx + FastAPI + Redis ..."
-    if command -v docker >/dev/null 2>&1 && groups | grep -q '\bdocker\b'; then
-        docker compose up -d
-    else
-        sudo docker compose up -d
+    DC_CMD=(docker compose)
+    if ! (command -v docker >/dev/null 2>&1 && groups | grep -q '\bdocker\b'); then
+      DC_CMD=(sudo docker compose)
     fi
-    sleep 3
+    "${DC_CMD[@]}" up -d
+    sleep 5
     info "[Docker] 健康检查..."
-    (command -v docker >/dev/null 2>&1 && groups | grep -q '\bdocker\b' && docker compose ps) \
-        || sudo docker compose ps
-    echo
-    info "✅ 部署完成！请访问：http://$(hostname -I | awk '{print $1}'):${HTTP_PORT}"
-    if [[ -n "$DOMAIN" ]]; then
-        info "   或解析域名后访问：http://${DOMAIN}:${HTTP_PORT}"
+    "${DC_CMD[@]}" ps
+    IP="$(hostname -I | awk '{print $1}')"
+
+    # ---- SSL：certbot 申请 + 写入 conf.d 后 reload nginx 容器 ----
+    ACME_DONE=0
+    if [[ "$ENABLE_SSL" != "no" ]]; then
+      if [[ "$ENABLE_SSL" == "yes" ]] || dns_resolves_to_this_host "$DOMAIN"; then
+        install_certbot_alinux3
+        if issue_letsencrypt_webroot; then
+          # Docker 模式：把 https snippet 写到 $APP_DIR/deploy/nginx/conf.d/webstock-https.conf
+          #   upstream = webstock:8000（容器内 DNS）
+          #   root     = /usr/share/nginx/html（容器内）
+          enable_https_server_block \
+            "deploy/nginx/webstock-https.conf.snippet" \
+            "$APP_DIR/deploy/nginx/conf.d/webstock-https.conf" \
+            "webstock:8000" \
+            "/usr/share/nginx/html" || true
+          # 容器内 nginx -t 再 reload
+          set +e
+          "${DC_CMD[@]}" exec -T nginx nginx -t 2>&1 | tail -5
+          local ok=$?
+          set -e
+          if [[ $ok -eq 0 ]]; then
+            "${DC_CMD[@]}" exec -T nginx nginx -s reload 2>&1 | tail -2
+            ACME_DONE=1
+          else
+            warn "nginx container 内 nginx -t 失败，撤掉 443 片段"
+            sudo rm -f "$APP_DIR/deploy/nginx/conf.d/webstock-https.conf"
+            "${DC_CMD[@]}" exec -T nginx nginx -s reload 2>/dev/null || true
+          fi
+        fi
+      else
+        warn "[SSL] 未通过 DNS 预检，跳过证书申请。CDN/NAT 场景可加 --enable-ssl=yes 强制申请。"
+      fi
     fi
+
+    echo
+    info "========================================="
+    info "✅ 部署完成（Docker Compose）"
+    info "   公网 IP：  http://${IP}"
+    [[ -n "$DOMAIN" ]] && info "   主域名：   http://${DOMAIN}"
+    [[ $ACME_DONE == 1 ]] && info "   HTTPS：    https://${DOMAIN} （jeoj.com → 301 → www.jeoj.com）"
+    info "   常用命令（cd $APP_DIR 后）："
+    info "     查看后端日志  ${DC_CMD[*]} logs -f webstock"
+    info "     重启后端      ${DC_CMD[*]} restart webstock"
+    info "     重载 Nginx    ${DC_CMD[*]} exec nginx nginx -s reload"
+    info "========================================="
 }
 
 ###############################################
@@ -317,15 +480,48 @@ deploy_baremetal() {
     done
 
     IP="$(hostname -I | awk '{print $1}')"
+
+    # ---- SSL：certbot 申请 Let's Encrypt 并启用 443 server 段 ----
+    ACME_DONE=0
+    if [[ "$ENABLE_SSL" == "no" ]]; then
+      warn "[SSL] 用户指定 --enable-ssl=no，跳过"
+    else
+      if [[ "$ENABLE_SSL" == "yes" ]] || dns_resolves_to_this_host "$DOMAIN"; then
+        install_certbot_alinux3
+        # 必须先保证 /etc/letsencrypt 目录已存在
+        sudo mkdir -p /etc/letsencrypt
+        if issue_letsencrypt_webroot; then
+          enable_https_server_block \
+            "deploy/nginx/webstock-https.conf.snippet" \
+            "/etc/nginx/conf.d/webstock-https.conf" \
+            "127.0.0.1:8000" \
+            "$APP_DIR/frontend/dist" || true
+          sudo nginx -t 2>&1 | tail -3
+          if sudo nginx -t >/dev/null 2>&1; then
+            sudo systemctl reload nginx
+            ACME_DONE=1
+          else
+            warn "nginx -t 失败，撤掉 webstock-https.conf 以保证可用性"
+            sudo rm -f /etc/nginx/conf.d/webstock-https.conf
+            sudo nginx -t && sudo systemctl reload nginx || true
+          fi
+        fi
+      else
+        warn "[SSL] 未通过 DNS 预检，跳过证书申请。如果是 CDN/NAT，请用 --enable-ssl=yes 强制申请。"
+      fi
+    fi
+
     echo
     info "========================================="
-    info "✅ 部署完成"
-    info "   地址：http://${IP}:${HTTP_PORT}"
-    [[ -n "$DOMAIN" ]] && info "   域名：http://${DOMAIN}:${HTTP_PORT}"
+    info "✅ 部署完成（Baremetal）"
+    info "   公网 IP：  http://${IP}"
+    [[ -n "$DOMAIN" ]] && info "   主域名：   http://${DOMAIN}"
+    [[ $ACME_DONE == 1 ]] && info "   HTTPS：    https://${DOMAIN} （jeoj.com → 301 → www.jeoj.com）"
     info "   常用命令："
     info "     查看后端日志  sudo journalctl -u webstock -f"
     info "     重启后端      sudo systemctl restart webstock"
     info "     重载 Nginx    sudo systemctl reload nginx"
+    info "     手动申请证书  sudo certbot certonly --webroot -w /var/www/acme-challenge -d ${DOMAIN} -d ${APEX_DOMAIN} --email ${SSL_EMAIL}"
     info "========================================="
 }
 
