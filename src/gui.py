@@ -3,20 +3,48 @@ import sys
 import threading
 import traceback
 from datetime import datetime, timedelta
-import tkinter as tk
-from tkinter import ttk, scrolledtext, messagebox, filedialog
 
 import numpy as np
 
 from .data_loader import StockDataLoader
 from .trainer import StockTrainer
 
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
-from matplotlib.figure import Figure
-import matplotlib
+# ---- GUI 导入守卫：Linux 无显示器/无 tkinter 时优雅降级 ----
+try:
+    import tkinter as tk
+    from tkinter import ttk, scrolledtext, messagebox, filedialog
+    _TK_AVAILABLE = True
+except ImportError:
+    _TK_AVAILABLE = False
 
-matplotlib.rcParams["font.sans-serif"] = ["SimHei", "Arial Unicode MS", "DejaVu Sans"]
-matplotlib.rcParams["axes.unicode_minus"] = False
+    class _Dummy:
+        def __init__(self, *a, **kw): pass
+        def __getattr__(self, _): return _Dummy()
+        def __call__(self, *a, **kw): return _Dummy()
+    tk = _Dummy()
+    ttk = scrolledtext = messagebox = filedialog = _Dummy()
+
+try:
+    from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
+    from matplotlib.figure import Figure
+    import matplotlib
+    matplotlib.rcParams["font.sans-serif"] = ["SimHei", "Arial Unicode MS", "DejaVu Sans"]
+    matplotlib.rcParams["axes.unicode_minus"] = False
+    _MPL_TK_AVAILABLE = True
+except Exception:
+    _MPL_TK_AVAILABLE = False
+    from matplotlib.figure import Figure  # 纯 Figure 仍可用
+    FigureCanvasTkAgg = NavigationToolbar2Tk = None
+
+
+def _display_available() -> bool:
+    """检测当前环境是否有图形显示器（Linux 无 DISPLAY 时返回 False）。"""
+    if sys.platform == "win32":
+        return True
+    if sys.platform == "darwin":
+        return True
+    # Linux：检查 DISPLAY 环境变量
+    return bool(os.environ.get("DISPLAY"))
 
 
 class StockApp:
@@ -666,7 +694,24 @@ class StockApp:
 
 
 def main():
-    # 启动钉钉式主窗口；StockApp 作为「股票预测」模块挂在左侧菜单下
+    if not _TK_AVAILABLE:
+        print("=" * 60)
+        print("当前环境未安装 tkinter，无法启动桌面 GUI。")
+        print("Linux 服务器请使用 Web 接口：")
+        print("  1. 启动后端: cd backend && python -m uvicorn app.main:app --host 0.0.0.0 --port 8000")
+        print("  2. 浏览器访问: http://localhost  或  http://www.jeoj.com")
+        print("  3. 或安装 tkinter: sudo dnf install -y python3-tkinter tkinter")
+        print("=" * 60)
+        return
+    if not _display_available():
+        print("=" * 60)
+        print("当前为无图形界面 (headless) 环境，无法启动桌面 GUI。")
+        print("Linux 服务器请使用 Web 接口：")
+        print("  启动后端: cd backend && python -m uvicorn app.main:app --host 0.0.0.0 --port 8000")
+        print("  浏览器访问: http://localhost  或  http://www.jeoj.com")
+        print("  如需远程桌面 GUI，请配置 X11 转发或 VNC。")
+        print("=" * 60)
+        return
     from .main_window import MainWindow
     root = tk.Tk()
     try:

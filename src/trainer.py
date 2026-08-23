@@ -1,10 +1,13 @@
 import os
 import json
+import logging
 import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
 from .model import build_model
+
+logger = logging.getLogger(__name__)
 
 
 class StockTrainer:
@@ -15,6 +18,7 @@ class StockTrainer:
             self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         else:
             self.device = torch.device(device)
+        logger.info(f"StockTrainer 设备: {self.device} (CUDA 可用: {torch.cuda.is_available()})")
         self.model = None
         self.model_type = None
         self.model_config = {}

@@ -1,4 +1,15 @@
-# 原有 Tkinter 桌面版依赖 + 新 Web 架构依赖（Docker/baremetal 推荐使用 backend/requirements.txt 以减少安装量）
+# 原有 Tkinter 桌面版依赖 + 新 Web 架构依赖
+# Docker/baremetal 推荐使用 backend/requirements.txt 以减少安装量
+#
+# ── Linux 服务器 CPU-only 安装指引 ──────────────────────────
+# PyTorch CPU-only（避免下载 2GB+ CUDA 包）:
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+# TensorFlow CPU-only:
+#   pip install tensorflow-cpu>=2.10.0
+# 如服务器有 GPU 且需 CUDA 加速，则用默认源:
+#   pip install torch>=2.0.0  tensorflow>=2.10.0
+# ───────────────────────────────────────────────────────────
+
 torch>=2.0.0
 tensorflow>=2.10.0
 numpy>=1.24.0

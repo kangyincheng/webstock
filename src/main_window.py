@@ -15,11 +15,36 @@
 - 菜单支持父子层级：父菜单点击展开/收起子菜单（▶/▼ 箭头指示）
 - 「股票预测」挂在「工作台 → 股票」父菜单下，作为子菜单
 - 其它菜单：占位页面，留作后续扩展（钉钉式工作台/消息/通讯录/数据看板/设置）
+
+注意：Linux 无显示器 (headless) 环境下 GUI 不可用，请使用 Web 接口。
 """
 
+import os
+import sys
 import threading
-import tkinter as tk
-from tkinter import ttk
+
+# ---- GUI 导入守卫：Linux 无显示器/无 tkinter 时优雅降级 ----
+try:
+    import tkinter as tk
+    from tkinter import ttk
+    _TK_AVAILABLE = True
+except ImportError:
+    _TK_AVAILABLE = False
+
+    class _Dummy:
+        def __init__(self, *a, **kw): pass
+        def __getattr__(self, _): return _Dummy()
+        def __call__(self, *a, **kw): return _Dummy()
+    tk = ttk = _Dummy()
+
+
+def _display_available() -> bool:
+    """检测当前环境是否有图形显示器（Linux 无 DISPLAY 时返回 False）。"""
+    if sys.platform == "win32":
+        return True
+    if sys.platform == "darwin":
+        return True
+    return bool(os.environ.get("DISPLAY"))
 
 
 # 钉钉风格配色
@@ -627,6 +652,24 @@ class MainWindow:
 
 
 if __name__ == "__main__":
+    if not _TK_AVAILABLE:
+        print("=" * 60)
+        print("当前环境未安装 tkinter，无法启动桌面 GUI。")
+        print("Linux 服务器请使用 Web 接口：")
+        print("  1. 启动后端: cd backend && python -m uvicorn app.main:app --host 0.0.0.0 --port 8000")
+        print("  2. 浏览器访问: http://localhost  或  http://www.jeoj.com")
+        print("  3. 或安装 tkinter: sudo dnf install -y python3-tkinter tkinter")
+        print("=" * 60)
+        sys.exit(0)
+    if not _display_available():
+        print("=" * 60)
+        print("当前为无图形界面 (headless) 环境，无法启动桌面 GUI。")
+        print("Linux 服务器请使用 Web 接口：")
+        print("  启动后端: cd backend && python -m uvicorn app.main:app --host 0.0.0.0 --port 8000")
+        print("  浏览器访问: http://localhost  或  http://www.jeoj.com")
+        print("  如需远程桌面 GUI，请配置 X11 转发或 VNC。")
+        print("=" * 60)
+        sys.exit(0)
     root = tk.Tk()
     app = MainWindow(root)
     root.mainloop()
