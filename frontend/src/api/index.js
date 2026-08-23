@@ -39,3 +39,14 @@ export const cbondSubscribe = (p = {}) => http.post('/cbond/subscribe', p).then(
 export const cbondListing = (p = {}) => http.post('/cbond/listing', p).then(unwrap)
 export const cbondReview = (p = {}) => http.post('/cbond/review', p).then(unwrap)
 export const tender = (p) => http.post('/cbond/tender', p).then(unwrap)
+
+// ---------- 管理员后台 ----------
+export const adminStats = () => http.get('/admin/stats').then(unwrap)
+export const adminUsers = (p) => http.get('/admin/users', { params: p }).then(unwrap)
+export const adminSetAdmin = (uid, is_admin) => http.put(`/admin/users/${uid}/admin`, { is_admin }).then(unwrap)
+export const adminSetActive = (uid, is_active) => http.put(`/admin/users/${uid}/active`, { is_active }).then(unwrap)
+export const adminResetPwd = (uid, new_password) => http.post(`/admin/users/${uid}/reset-password`, { new_password }).then(unwrap)
+export const adminDeleteUser = (uid) => http.delete(`/admin/users/${uid}`).then(unwrap)
+export const adminAuditHistory = (p) => http.get('/admin/audit/history', { params: p }).then(unwrap)
+export const adminAuditDetail = (id) => http.get(`/admin/audit/detail/${id}`).then(unwrap)
+export const adminAuditFailed = (limit = 20) => http.get('/admin/audit/failed', { params: { limit } }).then(unwrap)

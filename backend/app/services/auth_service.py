@@ -85,6 +85,8 @@ class AuthDB:
                 password   TEXT NOT NULL,     -- bcrypt
                 nickname   TEXT,
                 avatar_url TEXT,
+                is_admin   INTEGER NOT NULL DEFAULT 0,
+                is_active  INTEGER NOT NULL DEFAULT 1,
                 created_at TEXT DEFAULT (datetime('now','localtime')),
                 updated_at TEXT DEFAULT (datetime('now','localtime')),
                 last_login_at TEXT,
@@ -103,13 +105,24 @@ class AuthDB:
             CREATE INDEX IF NOT EXISTS idx_revoked_user ON revoked_refresh(user_id);
             """)
 
-            # 兼容老库：login_count 可能不存在
-            try:
-                cols = [r[1] for r in c.execute("PRAGMA table_info(users)").fetchall()]
-                if "login_count" not in cols:
-                    c.execute("ALTER TABLE users ADD COLUMN login_count INTEGER NOT NULL DEFAULT 0")
-            except Exception:
-                pass
+            # 兼容老库：补齐缺失列
+            cols = [r[1] for r in c.execute("PRAGMA table_info(users)").fetchall()]
+            if "login_count" not in cols:
+                c.execute("ALTER TABLE users ADD COLUMN login_count INTEGER NOT NULL DEFAULT 0")
+            if "is_admin" not in cols:
+                c.execute("ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0")
+            if "is_active" not in cols:
+                c.execute("ALTER TABLE users ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1")
+            # 自动创建默认管理员（首次启动）
+            admin_exists = c.execute("SELECT 1 FROM users WHERE is_admin=1 LIMIT 1").fetchone()
+            if not admin_exists:
+                import os as _os
+                admin_pwd = _os.environ.get("ADMIN_INIT_PASSWORD") or "admin123456"
+                admin_user = _os.environ.get("ADMIN_INIT_USERNAME") or "admin"
+                c.execute(
+                    "INSERT OR IGNORE INTO users(username,email,password,nickname,is_admin) VALUES (?,?,?,?,1)",
+                    (admin_user, "admin@webstock.local", hash_password(admin_pwd), "系统管理员"),
+                )
 
 
 _DB_INST: Optional[AuthDB] = None
@@ -141,14 +154,15 @@ def _now_ts() -> int:
     return int(datetime.now(timezone.utc).timestamp())
 
 
-def issue_tokens(user_id: int, username: str) -> Dict[str, Any]:
+def issue_tokens(user_id: int, username: str, is_admin: bool = False) -> Dict[str, Any]:
     import secrets
     now = datetime.now(timezone.utc)
     access_exp = now + timedelta(minutes=ACCESS_TTL_MIN)
     refresh_exp = now + timedelta(hours=REFRESH_TTL_HOURS)
     jti_access = secrets.token_urlsafe(12)
     jti_refresh = secrets.token_urlsafe(16)
-    common = {"sub": str(user_id), "username": username, "iat": int(now.timestamp())}
+    common = {"sub": str(user_id), "username": username, "iat": int(now.timestamp()),
+              "is_admin": 1 if is_admin else 0}
     access = jwt.encode({**common, "jti": jti_access, "exp": int(access_exp.timestamp()), "type": "access"},
                         _secret(), algorithm=JWT_ALG)
     refresh = jwt.encode({**common, "jti": jti_refresh, "exp": int(refresh_exp.timestamp()), "type": "refresh"},
@@ -219,7 +233,10 @@ def authenticate_password(username: str, password: str,
 
 def get_user_by_id(user_id: int) -> Optional[Dict[str, Any]]:
     with auth_db()._conn() as c:
-        row = c.execute("SELECT id,username,email,nickname,avatar_url,created_at,updated_at,last_login_at,last_login_ip,login_count FROM users WHERE id=?", (user_id,)).fetchone()
+        row = c.execute(
+            "SELECT id,username,email,nickname,avatar_url,is_admin,is_active,"
+            "created_at,updated_at,last_login_at,last_login_ip,login_count "
+            "FROM users WHERE id=?", (user_id,)).fetchone()
         return dict(row) if row else None
 
 
@@ -254,3 +271,83 @@ def change_password(user_id: int, old_password: str, new_password: str) -> Tuple
         c.execute("UPDATE users SET password=?, updated_at=datetime('now','localtime') WHERE id=?",
                   (hash_password(new_password), user_id))
         return True, "修改成功"
+
+
+# =============== 管理员功能 ===============
+def list_users(page: int = 1, page_size: int = 20, keyword: str = "",
+               admin_only: bool = False) -> Dict[str, Any]:
+    page = max(1, int(page))
+    page_size = min(200, max(1, int(page_size)))
+    offset = (page - 1) * page_size
+    where = []
+    params = []
+    if keyword:
+        where.append("(username LIKE ? OR email LIKE ? OR nickname LIKE ?)")
+        kw = f"%{keyword}%"
+        params.extend([kw, kw, kw])
+    if admin_only:
+        where.append("is_admin=1")
+    sql = "SELECT id,username,email,nickname,avatar_url,is_admin,is_active,created_at,updated_at,last_login_at,last_login_ip,login_count FROM users"
+    count_sql = "SELECT COUNT(1) AS n FROM users"
+    if where:
+        cl = " WHERE " + " AND ".join(where)
+        sql += cl
+        count_sql += cl
+    sql += " ORDER BY id ASC LIMIT ? OFFSET ?"
+    params.extend([page_size, offset])
+    with auth_db()._conn() as c:
+        rows = [dict(r) for r in c.execute(sql, params).fetchall()]
+        total = int(c.execute(count_sql, params[:-2]).fetchone()["n"])
+    return {"rows": rows, "page": page, "page_size": page_size, "total": total,
+            "pages": (total + page_size - 1) // page_size}
+
+
+def admin_set_user_admin(user_id: int, is_admin: bool) -> Tuple[bool, str]:
+    with auth_db()._conn() as c:
+        row = c.execute("SELECT id,is_admin FROM users WHERE id=?", (user_id,)).fetchone()
+        if not row:
+            return False, "用户不存在"
+        c.execute("UPDATE users SET is_admin=?, updated_at=datetime('now','localtime') WHERE id=?",
+                  (1 if is_admin else 0, user_id))
+        return True, "已设置" if is_admin else "已取消管理员"
+
+
+def admin_set_user_active(user_id: int, is_active: bool) -> Tuple[bool, str]:
+    with auth_db()._conn() as c:
+        row = c.execute("SELECT id FROM users WHERE id=?", (user_id,)).fetchone()
+        if not row:
+            return False, "用户不存在"
+        c.execute("UPDATE users SET is_active=?, updated_at=datetime('now','localtime') WHERE id=?",
+                  (1 if is_active else 0, user_id))
+        return True, "已启用" if is_active else "已停用"
+
+
+def admin_reset_password(user_id: int, new_password: str) -> Tuple[bool, str]:
+    if len(new_password) < 6:
+        return False, "新密码至少 6 位"
+    with auth_db()._conn() as c:
+        row = c.execute("SELECT id FROM users WHERE id=?", (user_id,)).fetchone()
+        if not row:
+            return False, "用户不存在"
+        c.execute("UPDATE users SET password=?, updated_at=datetime('now','localtime') WHERE id=?",
+                  (hash_password(new_password), user_id))
+        return True, "密码已重置"
+
+
+def admin_delete_user(user_id: int) -> Tuple[bool, str]:
+    with auth_db()._conn() as c:
+        row = c.execute("SELECT id,is_admin FROM users WHERE id=?", (user_id,)).fetchone()
+        if not row:
+            return False, "用户不存在"
+        if int(row["is_admin"]) == 1:
+            cnt = c.execute("SELECT COUNT(1) AS n FROM users WHERE is_admin=1").fetchone()
+            if int(cnt["n"]) <= 1:
+                return False, "至少保留一个管理员，不能删除"
+        c.execute("DELETE FROM users WHERE id=?", (user_id,))
+        return True, "已删除"
+
+
+def is_admin(user_id: int) -> bool:
+    with auth_db()._conn() as c:
+        row = c.execute("SELECT is_admin FROM users WHERE id=?", (user_id,)).fetchone()
+        return bool(row and int(row["is_admin"]) == 1)

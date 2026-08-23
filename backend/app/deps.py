@@ -57,6 +57,17 @@ async def get_current_user(
     return user
 
 
+async def get_current_admin(
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """强制管理员。"""
+    if not user.get("is_admin"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="需要管理员权限")
+    if not user.get("is_active", 1):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="账号已被停用")
+    return user
+
+
 # ---------------- 审计装饰器 ----------------
 def audit_action(
     category: str,

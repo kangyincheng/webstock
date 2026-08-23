@@ -25,6 +25,23 @@ const navMenu = [
   ]},
 ]
 
+// 管理员菜单（仅 is_admin 用户可见）
+const adminMenu = {
+  key: 'admin', title: '管理后台', items: [
+    { key: '/admin', title: '🛡️ 后台首页' },
+    { key: '/admin/users', title: '👥 用户管理' },
+    { key: '/admin/audit', title: '📋 全局审计' },
+  ],
+}
+
+// 合并管理员菜单（仅当前用户 is_admin 时显示）
+const fullNav = computed(() => {
+  if (user.value?.is_admin) {
+    return [...navMenu, adminMenu]
+  }
+  return navMenu
+})
+
 const active = computed(() => route.path)
 function go(p) { router.push(p) }
 
@@ -74,6 +91,7 @@ async function refreshMe(showWelcome = false) {
 function handleCommand(cmd) {
   if (cmd === 'profile') router.push('/profile')
   else if (cmd === 'history') router.push('/history')
+  else if (cmd === 'admin') router.push('/admin')
   else if (cmd === 'logout') doLogout()
   else if (cmd === 'login') router.push('/login')
 }
@@ -100,8 +118,8 @@ onMounted(async () => {
 </script>
 
 <template>
-  <!-- 登录页独立布局 -->
-  <router-view v-if="route.path === '/login'"></router-view>
+  <!-- 登录页 / 管理员登录页独立布局 -->
+  <router-view v-if="route.path === '/login' || route.path === '/admin/login'"></router-view>
 
   <el-container v-else style="height:100vh">
     <el-aside width="210px" style="background: var(--nav-bg); color:#fff; display:flex; flex-direction:column">
@@ -110,7 +128,7 @@ onMounted(async () => {
         <div style="font-weight:400; font-size:12px; color:#86909c; margin-top:4px">{{ version || '加载中…' }}</div>
       </div>
       <el-scrollbar style="flex:1">
-        <div v-for="group in navMenu" :key="group.key" style="margin-top:12px">
+        <div v-for="group in fullNav" :key="group.key" style="margin-top:12px">
           <div style="padding:8px 16px; font-size:12px; color:#7a7f87; letter-spacing:.5px">{{ group.title }}</div>
           <div
             v-for="m in group.items" :key="m.key"
@@ -158,6 +176,7 @@ onMounted(async () => {
             <el-dropdown-menu>
               <el-dropdown-item command="profile">👤 个人中心</el-dropdown-item>
               <el-dropdown-item command="history">🧾 操作历史</el-dropdown-item>
+              <el-dropdown-item v-if="user?.is_admin" command="admin" divided>🛡️ 管理后台</el-dropdown-item>
               <el-dropdown-item divided command="logout">🚪 退出登录</el-dropdown-item>
             </el-dropdown-menu>
           </template>

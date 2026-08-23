@@ -4,6 +4,8 @@ import { tokenStore } from '../api/http.js'
 const routes = [
   { path: '/login', name: 'Login', component: () => import('../views/Login.vue'),
     meta: { title: '登录 / 注册', public: true } },
+  { path: '/admin/login', name: 'AdminLogin', component: () => import('../views/AdminLogin.vue'),
+    meta: { title: '管理员登录', public: true } },
   { path: '/', redirect: '/dashboard' },
   { path: '/dashboard', name: 'Dashboard', component: () => import('../views/Dashboard.vue'),
     meta: { title: '工作台', icon: '📊' } },
@@ -25,20 +27,28 @@ const routes = [
     meta: { title: '个人中心', icon: '👤', requireAuth: true } },
   { path: '/history', name: 'History', component: () => import('../views/History.vue'),
     meta: { title: '操作历史', icon: '🧾', requireAuth: true } },
+  { path: '/admin', name: 'Admin', component: () => import('../views/Admin.vue'),
+    meta: { title: '管理后台', icon: '🛡️', requireAuth: true, requireAdmin: true } },
+  { path: '/admin/users', name: 'AdminUsers', component: () => import('../views/AdminUsers.vue'),
+    meta: { title: '用户管理', icon: '👥', requireAuth: true, requireAdmin: true } },
+  { path: '/admin/audit', name: 'AdminAudit', component: () => import('../views/AdminAudit.vue'),
+    meta: { title: '全局审计', icon: '📋', requireAuth: true, requireAdmin: true } },
 ]
 
 const router = createRouter({
-  history: createWebHashHistory(),  // hash 模式，Nginx SPA fallback 最稳
+  history: createWebHashHistory(),
   routes,
 })
 
-// 简单的路由守卫：requireAuth 页面需要已登录（不强制跳登录，仅跳 dashboard 再由用户点登录）
 router.beforeEach((to, _from, next) => {
   if (to.meta?.title) {
     document.title = `${to.meta.title} · webstock`
   }
   if (to.meta?.requireAuth && !tokenStore.isLoggedIn()) {
-    return next({ path: '/login', query: { redirect: to.fullPath } })
+    return next({ path: to.meta?.requireAdmin ? '/admin/login' : '/login', query: { redirect: to.fullPath } })
+  }
+  if (to.meta?.requireAdmin && !tokenStore.user?.is_admin) {
+    return next({ path: '/admin/login', query: { redirect: to.fullPath } })
   }
   next()
 })

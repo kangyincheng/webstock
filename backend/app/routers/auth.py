@@ -109,13 +109,24 @@ async def _do_login(username: str, password: str, request: Request):
         )
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户名或密码错误")
 
-    tokens = auth.issue_tokens(int(user["id"]), user.get("username") or "")
+    # 账号被停用
+    if not user.get("is_active", 1):
+        audit_inst().log(
+            user_id=int(user["id"]), username=user.get("username"),
+            category=CATEGORY_LOGIN, action="登录失败：账号已被停用",
+            ok=False, target_key=user.get("username"),
+            ip=ip, ua=_ua(request),
+        )
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="账号已被停用，请联系管理员")
+
+    is_adm = bool(user.get("is_admin"))
+    tokens = auth.issue_tokens(int(user["id"]), user.get("username") or "", is_admin=is_adm)
     aud = audit_inst()
     aud.log(
         user_id=int(user["id"]), username=user.get("username"),
-        category=CATEGORY_LOGIN, action="登录成功",
+        category=CATEGORY_LOGIN, action=("管理员登录" if is_adm else "登录成功"),
         target_key=user.get("username"),
-        detail={"last_login_at": user.get("last_login_at")},
+        detail={"last_login_at": user.get("last_login_at"), "is_admin": is_adm},
         ip=ip, ua=_ua(request),
     )
     # 登录响应额外带「上次操作」，便于前端再次登录时立刻显示

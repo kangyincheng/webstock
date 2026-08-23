@@ -17,6 +17,10 @@ dist/
 venv/
 env/
 
+# === 测试脚本（本地冒烟用，不上传）===
+_e2e_auth_smoke.py
+_admin_smoke.py
+
 # === 数据与缓存 ===
 # 根目录 data / models（原桌面版）
 data/

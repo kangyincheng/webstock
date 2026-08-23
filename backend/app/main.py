@@ -27,7 +27,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from .cache import CacheLayer
-from .routers import system, auth, audit, market, predict, favorites, cbond
+from .routers import system, auth, audit, market, predict, favorites, cbond, admin
 from .ws_bus import ws_endpoint
 # 初始化 auth + audit 数据库（首次启动自动建表）
 from .services import auth_service as _auth  # noqa: F401
@@ -65,6 +65,7 @@ app.include_router(market.router, prefix="/api/market", tags=["market"])
 app.include_router(predict.router, prefix="/api/predict", tags=["predict"])
 app.include_router(favorites.router, prefix="/api/favorites", tags=["favorites"])
 app.include_router(cbond.router, prefix="/api/cbond", tags=["cbond"])
+app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
 
 # ---- 静态前端 fallback（Nginx 直接托管 frontend/dist 更快；这里仅兜底）----
 FRONTEND_DIST = os.path.abspath(
