@@ -1,0 +1,63 @@
+# syntax=docker/dockerfile:1.6
+# ------------------------------------------------------------------
+# webstock Backend Dockerfile（CPU-only + 国内镜像源优化，runtime 直装版）
+# 单 stage 后端运行镜像：pip 直接装到默认 site-packages，避免 --prefix 导致
+# 的 sys.path 分裂 / 镜像层翻倍 / 磁盘爆满问题。
+# ------------------------------------------------------------------
+
+FROM node:20-alpine AS fe-builder
+WORKDIR /fe
+COPY frontend/package.json frontend/vite.config.js frontend/tsconfig.json frontend/index.html ./
+COPY frontend/src ./src
+RUN npm install --registry=https://registry.npmmirror.com --no-audit --no-fund --loglevel=error \
+ && npm run build
+
+FROM python:3.11-slim-bookworm AS runtime
+LABEL maintainer="kangyincheng" \
+      description="webstock (FastAPI + Vue3) runtime image (CPU-only)"
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple \
+    PIP_TRUSTED_HOST=pypi.tuna.tsinghua.edu.cn \
+    APP_HOME=/app \
+    PORT=8000
+
+RUN apt-get update -qq \
+ && apt-get install -y --no-install-recommends \
+        ca-certificates curl libgomp1 libopenblas0 tini \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# 1) torch 必须走 pytorch CPU 官方源（清华源没有 torch  wheels）
+RUN pip install --no-cache-dir \
+        --index-url https://download.pytorch.org/whl/cpu \
+        "torch>=2.0.0"
+
+# 2) 其余依赖走清华源（requirements-cpu.txt 已用 tensorflow-cpu，CPU-only）
+COPY backend/requirements-cpu.txt /tmp/reqs.txt
+RUN sed -i '/^torch/d' /tmp/reqs.txt \
+ && pip install --no-cache-dir -r /tmp/reqs.txt \
+ && rm -f /tmp/reqs.txt
+
+# 业务代码
+COPY --chown=app:app src /app/src
+COPY --chown=app:app backend /app/backend
+
+# 前端构建产物
+COPY --from=fe-builder --chown=app:app /fe/dist /app/frontend/dist
+
+RUN groupadd -r app 2>/dev/null; useradd -r -g app -d /app app 2>/dev/null; true \
+ && mkdir -p /app/backend/data /app/backend/models \
+ && chown -R app:app /app
+
+USER app
+EXPOSE 8000
+
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["sh", "-c", \
+     "gunicorn -k uvicorn.workers.UvicornWorker -w ${WORKERS:-2} -b 0.0.0.0:${PORT:-8000} \
+      --timeout 600 --keep-alive 30 --max-requests 1000 --max-requests-jitter 200 \
+      backend.app.main:app"]

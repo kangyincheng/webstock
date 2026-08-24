@@ -7,12 +7,12 @@ const rows = ref([])
 const loading = ref(false)
 
 const dialog = ref(false)
-const mode = ref<'add'|'edit'>('add')
+const mode = ref('add')
 const form = reactive({
-  id: null as number | null,
-  code: '', name: '', buy_date: '', buy_price: null as number | null,
-  current_price: null as number | null, note: '',
-  events: [] as { title: string; due_date: string }[],
+  id: null,
+  code: '', name: '', buy_date: '', buy_price: null,
+  current_price: null, note: '',
+  events: [],
 })
 function resetForm() {
   Object.assign(form, { id: null, code: '', name: '', buy_date: '', buy_price: null, current_price: null, note: '', events: [] })
@@ -37,7 +37,7 @@ function delEvent(i) { form.events.splice(i, 1) }
 async function submit() {
   try {
     if (mode.value === 'add') await favAdd({ ...form })
-    else await favUpdate(form.id!, { ...form })
+    else await favUpdate(form.id, { ...form })
     ElMessage.success('已保存')
     dialog.value = false
     reload()

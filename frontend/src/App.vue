@@ -115,87 +115,8 @@ onMounted(async () => {
   }
   await refreshMe(true)
 })
-</script>
 
-<template>
-  <!-- 登录页 / 管理员登录页独立布局 -->
-  <router-view v-if="route.path === '/login' || route.path === '/admin/login'"></router-view>
-
-  <el-container v-else style="height:100vh">
-    <el-aside width="210px" style="background: var(--nav-bg); color:#fff; display:flex; flex-direction:column">
-      <div style="padding:18px 16px; font-weight:700; font-size:16px; border-bottom:1px solid #3a3c40">
-        🚀 webstock
-        <div style="font-weight:400; font-size:12px; color:#86909c; margin-top:4px">{{ version || '加载中…' }}</div>
-      </div>
-      <el-scrollbar style="flex:1">
-        <div v-for="group in fullNav" :key="group.key" style="margin-top:12px">
-          <div style="padding:8px 16px; font-size:12px; color:#7a7f87; letter-spacing:.5px">{{ group.title }}</div>
-          <div
-            v-for="m in group.items" :key="m.key"
-            @click="go(m.key)"
-            :style="{
-              padding:'10px 16px 10px 28px', cursor:'pointer',
-              background: active === m.key ? 'var(--nav-active)' : 'transparent',
-              color: active === m.key ? '#fff' : '#c8ccd2',
-              fontSize: '14px',
-              borderLeft: active === m.key ? '3px solid #fff' : '3px solid transparent',
-            }"
-            :class="{ hoverable: true }"
-            @mouseenter="e => !active.endsWith(m.key) && (e.currentTarget.style.background = '#3a3c40')"
-            @mouseleave="e => !active.endsWith(m.key) && (e.currentTarget.style.background = 'transparent')"
-          >
-            {{ m.title }}
-            <span v-if="m.requireAuth && !user" style="color:#ff9a3c; margin-left:6px; font-size:11px">登录</span>
-          </div>
-        </div>
-      </el-scrollbar>
-    </el-aside>
-
-    <el-container>
-      <el-header style="background:#fff; border-bottom:1px solid #e5e6eb; display:flex; align-items:center">
-        <div style="font-weight:600; font-size:16px">{{ route.meta.title || '' }}</div>
-        <div style="flex:1"></div>
-
-        <div v-if="!user" style="display:flex; gap:8px; align-items:center">
-          <div style="color:#86909c; font-size:12px">登录后操作会被记录</div>
-          <el-button type="primary" size="small" @click="$router.push('/login')">登录 / 注册</el-button>
-        </div>
-
-        <el-dropdown v-else trigger="click" @command="handleCommand">
-          <div style="display:flex; align-items:center; gap:8px; cursor:pointer; padding:4px 8px; border-radius:8px"
-               @mouseenter="e => e.currentTarget.style.background = '#f2f3f5'"
-               @mouseleave="e => e.currentTarget.style.background = 'transparent'">
-            <el-avatar :size="30" style="background:#4e83fd">{{ (user.username || 'U').charAt(0).toUpperCase() }}</el-avatar>
-            <div style="font-size:13px">
-              <div style="font-weight:600">{{ user.username }}</div>
-              <div v-if="lastAction" style="color:#86909c; font-size:11px">上次：{{ lastAction.action }}</div>
-            </div>
-            <el-icon :size="12"><CaretBottom /></el-icon>
-          </div>
-          <template #dropdown>
-            <el-dropdown-menu>
-              <el-dropdown-item command="profile">👤 个人中心</el-dropdown-item>
-              <el-dropdown-item command="history">🧾 操作历史</el-dropdown-item>
-              <el-dropdown-item v-if="user?.is_admin" command="admin" divided>🛡️ 管理后台</el-dropdown-item>
-              <el-dropdown-item divided command="logout">🚪 退出登录</el-dropdown-item>
-            </el-dropdown-menu>
-          </template>
-        </el-dropdown>
-      </el-header>
-      <el-main>
-        <router-view v-slot="{ Component }">
-          <transition name="fade" mode="out-in">
-            <component :is="Component" />
-          </transition>
-        </router-view>
-      </el-main>
-    </el-container>
-  </el-container>
-</template>
-
-<script lang="ts" module="components">
-// 全局图标按需注册（不依赖额外包，手写小图标即可）
-import { defineComponent, h } from 'vue'
+// --- 全局图标组件（内联注册，供模板使用）---
 const CaretBottom = defineComponent({
   name: 'CaretBottom',
   render() {
@@ -204,7 +125,7 @@ const CaretBottom = defineComponent({
     ])
   },
 })
-export { CaretBottom }
+
 </script>
 
 <style scoped>

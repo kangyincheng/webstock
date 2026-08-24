@@ -15,8 +15,8 @@ services:
   webstock:
     build:
       context: .
-      dockerfile: Dockerfile
-    image: webstock:latest
+      dockerfile: Dockerfile.cpu
+    image: webstock:cpu
     restart: unless-stopped
     depends_on:
       redis:
