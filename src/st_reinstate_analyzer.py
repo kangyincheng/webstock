@@ -215,6 +215,8 @@ class STReinstateAnalyzer:
             DataFrame，列：股票名称, 代码, ST开始日期, ST转正日期,
                           股价, 净资产, 市盈率, 市净率, 量比, 换手
         """
+        # 兼容旧调用名：backend 使用 az.scan(...) 而非 az.scan_and_analyze(...)
+        # scan() 别名片段见下方
         end_date = _today_str()
         start_date = _months_ago(months_back)
 
@@ -289,3 +291,6 @@ class STReinstateAnalyzer:
         df_out = df_out.sort_values("ST转正日期", ascending=False,
                                    na_position="last").reset_index(drop=True)
         return df_out
+
+    # 兼容别称：backend 通过 az.scan(...) 调用
+    scan = scan_and_analyze

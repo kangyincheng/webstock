@@ -14,6 +14,13 @@ from typing import Any, Callable, Dict, List, Optional
 
 import pandas as pd
 
+# ---- pandas 3.0+ 移除了 DataFrame.append，但 baostock 00.9.30 仍依赖它 ----
+if not getattr(pd.DataFrame, '_patched_append', False):
+    def _df_append_compat(self, other, *args, **kwargs):
+        return pd.concat([self, other], *args, **kwargs)
+    pd.DataFrame.append = _df_append_compat
+    pd.DataFrame._patched_append = True
+
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 SRC_DIR = os.path.join(BASE_DIR, "src")
 if SRC_DIR not in sys.path:

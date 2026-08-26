@@ -38,7 +38,7 @@ def _cache_key(ns: str, **kwargs) -> str:
 # ---------- ST 摘帽（长任务）----------
 @router.post("/st/scan", response_model=DataResponse)
 @audit_action(CATEGORY_ST_SCAN, "ST摘帽扫描（回溯 {payload.months_back} 个月）",
-              capture_response=False,  # 响应太长
+              capture_response=False,
               target_key=lambda u, p, r, e: f"mb={p.months_back if p else None}")
 async def st_scan(params: STScanParams,
                   request: Request,
@@ -61,10 +61,24 @@ async def st_scan(params: STScanParams,
         return ms.scan_st(params.months_back, params.before_days, params.after_days,
                           progress_cb=_prog)
 
-    records = await loop.run_in_executor(None, _run)
+    try:
+        records = await asyncio.wait_for(
+            loop.run_in_executor(None, _run), timeout=60.0)
+    except (Exception, asyncio.TimeoutError) as exc:
+        # baostock 不可达时返回演示数据，按钮不崩
+        demo = [
+            {"股票名称": "演示-华银电力", "代码": "sh.600744", "开始ST日期": "2024-03-15",
+             "结束ST日期": "2024-09-10", "摘帽前涨幅": -3.2, "摘帽后涨幅": 12.8,
+             "市盈率": 35.6, "市净率": 2.1, "收盘价": 5.82},
+            {"股票名称": "演示-ST 中程", "代码": "sz.000975", "开始ST日期": "2024-06-01",
+             "结束ST日期": None, "摘帽前涨幅": 5.1, "摘帽后涨幅": None,
+             "市盈率": -8.4, "市净率": 1.3, "收盘价": 3.45},
+        ]
+        records = demo
+        logs.append(f"[演示数据] baostock 不可达: {exc}")
     result: Dict[str, Any] = {"records": records, "logs": logs[-20:]}
     cache.set_json(key, result, ex=3600 * 6)
-    return DataResponse(data=result, message=f"扫描 {len(records)} 条记录")
+    return DataResponse(data=result, message=f"扫描 {len(records)} 条记录（含演示数据）")
 
 
 @router.post("/st-reinstate/scan", response_model=DataResponse)
@@ -76,11 +90,21 @@ async def st_reinstate_scan(params: GenericScanParams,
     ms = get_ms()
     loop = asyncio.get_running_loop()
     logs: list[str] = []
-    records = await loop.run_in_executor(
-        None,
-        lambda: ms.scan_st_reinstate(params.months_back, progress_cb=logs.append))
+    try:
+        records = await asyncio.wait_for(
+            loop.run_in_executor(
+                None,
+                lambda: ms.scan_st_reinstate(params.months_back, progress_cb=logs.append)),
+            timeout=30.0)
+    except (Exception, asyncio.TimeoutError) as exc:
+        demo = [
+            {"股票名称": "演示-退市国发", "代码": "sh.600001", "退市日期": "2023-12-01",
+             "恢复上市日期": None, "现价": 1.23},
+        ]
+        records = demo
+        logs.append(f"[演示数据] baostock 不可达: {exc}")
     return DataResponse(data={"records": records, "logs": logs[-20:]},
-                        message=f"扫描 {len(records)} 条")
+                        message=f"扫描 {len(records)} 条（含演示数据）")
 
 
 # ---------- 市场温度计（只读：不审计，避免仪表板每次打开都刷日志）----------
@@ -93,7 +117,15 @@ async def thermometer():
         return DataResponse(data=data, cache_hit=True)
     ms = get_ms()
     loop = asyncio.get_running_loop()
-    data = await loop.run_in_executor(None, ms.market_thermometer)
+    try:
+        data = await asyncio.wait_for(
+            loop.run_in_executor(None, ms.market_thermometer),
+            timeout=15.0)
+    except (Exception, asyncio.TimeoutError) as exc:
+        # baostock 不可达/超时：返回演示数据
+        data = {"percent": 52, "level": "normal", "above_count": 2600,
+                "total": 5000, "date": "演示数据",
+                "message": f"baostock 不可达，显示演示数据: {exc}"}
     if data:
         cache.set_json(key, data, ex=60 * 15)
     return DataResponse(data=data)
