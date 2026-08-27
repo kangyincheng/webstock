@@ -5,6 +5,7 @@ import { favList, favAdd, favUpdate, favDelete, favRefresh, favCheckEvents } fro
 
 const rows = ref([])
 const loading = ref(false)
+const taskLoading = ref(false)
 
 const dialog = ref(false)
 const mode = ref('add')
@@ -59,14 +60,17 @@ async function reload() {
 }
 
 async function refresh() {
+  taskLoading.value = true
   try {
     await favRefresh()
     ElMessage.success('后台已提交刷新，请稍后查看')
     setTimeout(reload, 2000)
   } catch (e) { ElMessage.error(e.message) }
+  finally { taskLoading.value = false }
 }
 
 async function checkEvents() {
+  taskLoading.value = true
   try {
     const r = await favCheckEvents()
     const list = r.due_events || []
@@ -78,6 +82,7 @@ async function checkEvents() {
     )
     reload()
   } catch (e) { ElMessage.error(e.message) }
+  finally { taskLoading.value = false }
 }
 
 function gainClass(v) {
@@ -97,8 +102,8 @@ onMounted(reload)
       <el-space wrap style="margin-bottom:12px">
         <el-button type="primary" @click="openAdd">➕ 添加自选</el-button>
         <el-button :loading="loading" @click="reload">🔄 列表刷新</el-button>
-        <el-button type="success" @click="refresh">💹 刷新行情（后台）</el-button>
-        <el-button type="warning" @click="checkEvents">⏰ 检查到期事件</el-button>
+        <el-button type="success" :loading="taskLoading" @click="refresh">💹 刷新行情（后台）</el-button>
+        <el-button type="warning" :loading="taskLoading" @click="checkEvents">⏰ 检查到期事件</el-button>
       </el-space>
 
       <el-table :data="rows" stripe border :loading="loading" max-height="72vh"

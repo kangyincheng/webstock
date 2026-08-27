@@ -73,7 +73,7 @@ async function delUser(row) {
         <div style="flex:1"></div>
         <el-input v-model="q.keyword" placeholder="搜索用户名/邮箱/昵称" style="width:200px" clearable @keyup.enter="onSearch" />
         <el-checkbox v-model="q.admin_only" border @change="onSearch">仅管理员</el-checkbox>
-        <el-button type="primary" @click="onSearch">搜索</el-button>
+        <el-button type="primary" :loading="loading" @click="onSearch">搜索</el-button>
       </div>
     </template>
 

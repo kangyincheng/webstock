@@ -61,7 +61,7 @@ onMounted(load)
           <el-option v-for="c in categories" :key="c.value" :label="c.label" :value="c.value" />
         </el-select>
         <el-checkbox v-model="q.only_errors" border>只看失败</el-checkbox>
-        <el-button type="primary" @click="onSearch">搜索</el-button>
+        <el-button type="primary" :loading="loading" @click="onSearch">搜索</el-button>
       </div>
     </template>
 

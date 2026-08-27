@@ -17,12 +17,15 @@ let c2 = null
 const sectorRows = ref([])
 const hotRows = ref([])
 const loading = ref(false)
+const thermLoading = ref(false)
 
 async function loadTherm() {
+  thermLoading.value = true
   try {
     const t = await thermometer()
     if (t) Object.assign(therm.value, t)
   } catch (e) { ElMessage.error('温度计加载失败：' + e.message) }
+  finally { thermLoading.value = false }
 }
 
 function renderSectorChart() {
@@ -128,7 +131,7 @@ onUnmounted(() => {
             :stroke-width="14"
             style="margin-top:12px"
           />
-          <el-button size="small" style="margin-top:12px" @click="loadTherm">刷新</el-button>
+          <el-button size="small" :loading="thermLoading" style="margin-top:12px" @click="loadTherm">刷新</el-button>
         </div>
       </el-col>
       <el-col :span="18">
