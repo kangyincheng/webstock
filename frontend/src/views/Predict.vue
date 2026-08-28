@@ -332,3 +332,50 @@ onBeforeUnmount(() => { ws_close(); ch?.dispose(); cl?.dispose() })
     </el-row>
   </div>
 </template>
+
+<style scoped>
+/* ============ 移动端 ≤768px：拆成单列、标签上移、避免重叠 ============ */
+@media (max-width: 768px) {
+  :deep(.el-row) { flex-direction: column; row-gap: 12px; }
+  :deep(.el-col) { width: 100% !important; max-width: 100% !important; flex: none !important; }
+
+  :deep(.el-form) {
+    --el-form-label-width: 72px;
+    --el-form-inline-label-width: 72px;
+  }
+  :deep(.el-form-item) {
+    display: block;
+    margin-bottom: 10px;
+  }
+  :deep(.el-form-item__label) {
+    display: block;
+    width: auto !important;
+    text-align: left;
+    margin-bottom: 4px;
+    font-size: 12px;
+    color: #4e5969;
+    font-weight: 600;
+  }
+  :deep(.el-form-item__content) {
+    margin-left: 0 !important;
+  }
+  :deep(.el-form-item .el-select),
+  :deep(.el-form-item .el-input),
+  :deep(.el-form-item .el-input-number),
+  :deep(.el-form-item .el-radio-group),
+  :deep(.el-form-item .el-switch) {
+    width: 100%;
+  }
+  :deep(.el-input-number) { width: 100% !important; }
+
+  :deep(.el-radio-group) { display: flex; flex-wrap: wrap; gap: 6px; }
+
+  :deep(.el-table) { min-width: 100%; }
+
+  :deep(.chart-card, .el-card) { margin-bottom: 12px; }
+
+  .el-progress, :deep(.el-progress) { margin: 6px 0 10px; }
+
+  :deep(.el-scrollbar) { padding: 6px 8px !important; }
+}
+</style>
