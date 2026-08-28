@@ -5,7 +5,10 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
-from .model import build_model
+try:
+    from .model import build_model  # 作为 src 包的子模块（GUI 入口）
+except ImportError:
+    from model import build_model  # 作为顶层模块（后端 sys.path 加载）
 
 logger = logging.getLogger(__name__)
 

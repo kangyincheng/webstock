@@ -148,10 +148,10 @@ class TrainingService:
             batch_size = int(params.get("batch_size", 32))
             lr = float(params.get("learning_rate", 1e-3))
 
-            def _epoch_cb(ep, tl, vl):
-                log(epoch=ep, total_epochs=epochs, train_loss=float(tl) if tl is not None else None,
+            def _epoch_cb(ep, total, tl, vl):
+                log(epoch=ep, total_epochs=total or epochs, train_loss=float(tl) if tl is not None else None,
                     val_loss=float(vl) if vl is not None else None,
-                    msg=f"epoch {ep}/{epochs} loss={tl} val={vl}")
+                    msg=f"epoch {ep}/{total or epochs} loss={tl} val={vl}")
 
             X_train, y_train = loader.X_train, loader.y_train
             # 切出 10% 做 val
