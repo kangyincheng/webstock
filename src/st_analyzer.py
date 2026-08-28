@@ -94,12 +94,19 @@ class STAnalyzer:
             frequency="d",
             adjustflag="2",  # 前复权
         )
-        rows = []
-        while rs.error_code == "0" and rs.next():
-            rows.append(rs.get_row_data())
-        if not rows:
+        if rs.error_code != "0":
             return pd.DataFrame()
-        df = pd.DataFrame(rows, columns=rs.fields)
+        try:
+            df = rs.get_data()
+            if df is None or df.empty:
+                return pd.DataFrame()
+        except Exception:
+            rows = []
+            while rs.error_code == "0" and rs.next():
+                rows.append(rs.get_row_data())
+            if not rows:
+                return pd.DataFrame()
+            df = pd.DataFrame(rows, columns=rs.fields)
         # 数值化
         for col in ["close", "preclose", "pctChg", "isST", "peTTM", "pbMRQ"]:
             if col in df.columns:
@@ -108,16 +115,22 @@ class STAnalyzer:
 
     # ---------------- 股票名称 ----------------
     def _get_stock_names(self, bs, codes):
-        """通过 query_stock_basic 拉股票名称映射。"""
+        """通过 query_stock_basic 拉股票名称映射（批量）。"""
         rs = bs.query_stock_basic()
         name_map = {}
         if rs.error_code != "0":
             return name_map
-        while rs.error_code == "0" and rs.next():
-            row = rs.get_row_data()
-            # query_stock_basic 返回字段：code, code_name, ipoDate, outDate, type, status
-            if len(row) >= 2:
-                name_map[row[0]] = row[1]
+        try:
+            df = rs.get_data()
+            if df is not None and not df.empty:
+                for _, row in df.iterrows():
+                    if len(row) >= 2:
+                        name_map[str(row[0])] = str(row[1])
+        except Exception:
+            while rs.error_code == "0" and rs.next():
+                row = rs.get_row_data()
+                if len(row) >= 2:
+                    name_map[row[0]] = row[1]
         return name_map
 
     # ---------------- 找出摘帽日 ----------------
@@ -270,7 +283,7 @@ class STAnalyzer:
                 if i % 50 == 0 or i == total:
                     log(f"进度 {i}/{total}  已找到 {success} 只摘帽股")
                 # baostock 限速：每只间隔 0.1s
-                time.sleep(0.1)
+                time.sleep(0.01)
         finally:
             self._logout(bs)
 
