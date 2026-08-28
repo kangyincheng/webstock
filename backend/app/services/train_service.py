@@ -117,7 +117,7 @@ class TrainingService:
             if fetched is None or loader.df is None or loader.df.empty:
                 raise RuntimeError("加载行情数据失败，请检查股票代码/日期/网络")
 
-            loader.prepare_sequences(
+            loader.preprocess(
                 feature_cols=feature_cols or ["open", "high", "low", "close", "volume", "amount", "turn"],
                 target_col=loader.target_col,
                 seq_len=int(params.get("seq_len", 60)),
