@@ -118,22 +118,48 @@ class STReinstateAnalyzer:
 
     # ---------------- 股票名称 ----------------
     def _get_stock_names(self, bs):
-        """通过 query_stock_basic 拉股票名称映射（批量）。"""
+        """通过 query_stock_basic 拉股票名称映射（按列名取，避免行序随机）。
+
+        与 STAnalyzer._get_stock_names 实现一致，规避「row[0]/row[1] 赌顺序
+        导致 name_map 全空 / 第二个表单空白」的 bug。
+        """
         rs = bs.query_stock_basic()
         name_map = {}
         if rs.error_code != "0":
             return name_map
+        df = None
         try:
             df = rs.get_data()
-            if df is not None and not df.empty:
-                for _, row in df.iterrows():
-                    if len(row) >= 2:
-                        name_map[str(row[0])] = str(row[1])
         except Exception:
-            while rs.error_code == "0" and rs.next():
-                row = rs.get_row_data()
-                if len(row) >= 2:
-                    name_map[row[0]] = row[1]
+            pass
+        if df is not None and not df.empty:
+            code_col = next((c for c in df.columns if c.lower() == "code"), None)
+            name_col = next(
+                (c for c in df.columns if "name" in c.lower()), None)
+            if code_col is not None and name_col is not None:
+                for _, r in df[[code_col, name_col]].iterrows():
+                    c, n = r.iloc[0], r.iloc[1]
+                    if c and n:
+                        name_map[str(c)] = str(n)
+            else:
+                fields = list(getattr(rs, "fields", []) or [])
+                ci = next((i for i, f in enumerate(fields) if f.lower() == "code"), 0)
+                ni = next((i for i, f in enumerate(fields) if "name" in f.lower()), 1)
+                for _, r in df.iterrows():
+                    if len(r) > max(ci, ni):
+                        c, n = r.iloc[ci], r.iloc[ni]
+                        if c and n:
+                            name_map[str(c)] = str(n)
+            return name_map
+        fields = list(getattr(rs, "fields", []) or [])
+        ci = next((i for i, f in enumerate(fields) if f.lower() == "code"), 0)
+        ni = next((i for i, f in enumerate(fields) if "name" in f.lower()), 1)
+        while rs.error_code == "0" and rs.next():
+            row = rs.get_row_data()
+            if len(row) > max(ci, ni):
+                c, n = row[ci], row[ni]
+                if c and n:
+                    name_map[str(c)] = str(n)
         return name_map
 
     # ---------------- 找出 ST 起始日 / 转正日 ----------------
