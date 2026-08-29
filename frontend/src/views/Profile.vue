@@ -9,8 +9,15 @@ const lastAction = ref(null)
 const summary = ref(null)
 
 async function loadAll() {
-  try { user.value = await authMe() } catch (e) { ElMessage.warning(e.message) }
-  try { lastAction.value = (await auditLast())?.last || null } catch {}
+  try {
+    const meResp = await authMe()
+    // /auth/me 后端返回 { auth, user, last_action, recent_history }，需取 .user
+    user.value = meResp?.user || meResp
+    lastAction.value = meResp?.last_action || null
+  } catch (e) { ElMessage.warning(e.message) }
+  if (!lastAction.value) {
+    try { lastAction.value = (await auditLast())?.last || null } catch {}
+  }
   try { summary.value = await auditSummary() } catch {}
 }
 onMounted(loadAll)

@@ -262,7 +262,7 @@ class TushareClient:
         import random
         import pandas as pd
         random.seed(42)
-        prefix = [("sh.60", "60"), ("sz.00", "00"), ("sh.688", "688"), ("sz.30", "30")]
+        prefix = [("sh.", "60"), ("sz.", "00"), ("sh.", "688"), ("sz.", "30")]
         names = ["东财科技", "恒瑞医药", "宁德时代", "贵州茅台", "招商银行", "比亚迪",
                  "中国平安", "隆基绿能", "北方华创", "长江电力", "海康威视", "药明康德",
                  "伊利股份", "美的集团", "海尔智家", "紫金矿业", "中信证券", "立讯精密"]
@@ -271,7 +271,10 @@ class TushareClient:
         rows = []
         for i in range(n):
             p, suf = random.choice(prefix)
-            code = p + str(random.randint(int(suf + "0001"), int(suf + "9999")))
+            # suf 为股票代码前缀（2 或 3 位），补足到 6 位标准代码
+            pad = 6 - len(suf)
+            tail = random.randint(0, 10 ** pad - 1) if pad > 0 else 0
+            code = p + suf + str(tail).zfill(pad)
             pct = round(random.uniform(-10, 10), 2)
             close = round(random.uniform(3, 300), 2)
             rows.append({

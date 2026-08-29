@@ -52,6 +52,7 @@ onMounted(load)
 </script>
 
 <template>
+  <div>
   <el-card shadow="never">
     <template #header>
       <div style="display:flex; align-items:center; gap:12px">
@@ -112,4 +113,5 @@ onMounted(load)
       </el-descriptions-item>
     </el-descriptions>
   </el-dialog>
+  </div>
 </template>

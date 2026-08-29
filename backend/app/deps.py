@@ -169,12 +169,11 @@ def audit_action(
                 for k, v in extra_ctx.items():
                     ctx[k] = v
                 if "{" in action_text:
-                    # Format 容错：未知占位符保留原值
-                    import string as _string
-                    class _SafeDict(dict):
-                        def __missing__(self, k): return "{" + k + "}"
-                    def _flatten_for_fmt(d: Dict[str, Any]):
-                        out = {}
+                    # 简单模板替换：支持 {payload.xxx} / {user.xxx} / {顶层变量}
+                    # 以及 {key|默认值} 语法（缺省或空值时用默认值）；未知占位符保留原值
+                    import re as _re
+                    def _flatten(d: Dict[str, Any]) -> Dict[str, Any]:
+                        out: Dict[str, Any] = {}
                         for k, v in d.items():
                             if isinstance(v, (str, int, float, bool)) or v is None:
                                 out[k] = v if v is not None else ""
@@ -183,7 +182,21 @@ def audit_action(
                                     if isinstance(vv, (str, int, float, bool)) or vv is None:
                                         out[f"{k}.{kk}"] = vv if vv is not None else ""
                         return out
-                    action_text = action_text.format_map(_SafeDict(_flatten_for_fmt(ctx)))
+                    flat = _flatten(ctx)
+
+                    def _repl(m: "re.Match[str]") -> str:
+                        expr = m.group(1)
+                        parts = expr.split("|", 1)
+                        key = parts[0].strip()
+                        default = parts[1] if len(parts) > 1 else None
+                        if key in flat:
+                            val = flat[key]
+                            if val == "" or val is None:
+                                val = default if default is not None else "{" + expr + "}"
+                            return str(val)
+                        return default if default is not None else "{" + expr + "}"
+
+                    action_text = _re.sub(r"\{([^{}]+)\}", _repl, action_text)
             except Exception:
                 pass
 
