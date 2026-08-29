@@ -98,6 +98,8 @@ class TrainingService:
             "actual": [],
             "predicted": [],
             "dates": [],
+            "next_day_pred": None,
+            "next_day_date": None,
             "error": None,
         }
         try:
@@ -174,10 +176,12 @@ class TrainingService:
             # 4) 预测 & 保存
             log = self._wrap_cb(task_id, progress_cb, "predict")
             log(msg="[4/4] 测试集推理 & 保存模型 ...")
-            pred = trainer.predict(loader.X_test)
+            pred_scaled = trainer.predict(loader.X_test)
             dates, actual = _df_to_lists(loader)
+            # 预测值反归一化回原始价格区间（模型在 MinMax 缩放后的 y 上训练）
+            pred_inv = loader.inverse_transform_close(pred_scaled, loader.target_col)
             # 对齐长度：pred 可能比 dates 短 seq_len
-            pred_list = [round(float(x), 4) for x in pred.ravel().tolist()]
+            pred_list = [round(float(x), 4) for x in pred_inv.ravel().tolist()]
             k = min(len(dates), len(actual), len(pred_list))
             if k < len(dates):
                 dates = dates[-k:] if k else dates
@@ -186,6 +190,31 @@ class TrainingService:
             result["predicted"] = pred_list[-k:] if k else pred_list
             result["actual"] = actual
             result["dates"] = dates
+
+            # 预测下一交易日收盘价：用最近 seq_len 窗口推理
+            next_pred = None
+            next_date_label = "下一交易日"
+            try:
+                seq_len = loader.X_test.shape[1]
+                last_window = loader.scaled_data[-seq_len:].reshape(1, seq_len, -1)
+                next_scaled = trainer.predict(last_window)
+                next_inv = loader.inverse_transform_close(next_scaled, loader.target_col)
+                next_pred = round(float(np.asarray(next_inv).ravel()[0]), 4)
+                if loader.df is not None and "date" in loader.df.columns and len(loader.df) > 0:
+                    from datetime import datetime, timedelta
+                    last_d = str(loader.df["date"].iloc[-1])[:10]
+                    try:
+                        d0 = datetime.strptime(last_d, "%Y-%m-%d")
+                        nd = d0 + timedelta(days=1)
+                        while nd.weekday() >= 5:  # 跳过周末
+                            nd = nd + timedelta(days=1)
+                        next_date_label = nd.strftime("%Y-%m-%d")
+                    except Exception:
+                        next_date_label = "下一交易日"
+            except Exception:
+                pass
+            result["next_day_pred"] = next_pred
+            result["next_day_date"] = next_date_label
 
             # 计算简单指标
             if result["actual"] and result["predicted"]:

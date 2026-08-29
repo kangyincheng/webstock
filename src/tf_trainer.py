@@ -63,7 +63,10 @@ class TFStockTrainer:
         return config
 
     def build_model(self, params):
-        from .tf_model import build_model
+        try:
+            from .tf_model import build_model  # 作为 src 包的子模块（GUI 入口）
+        except ImportError:
+            from tf_model import build_model  # 作为顶层模块（后端 sys.path 加载）
         config = self._get_model_config(params)
         self.model_type = config["model_type"]
         self.model_config = config

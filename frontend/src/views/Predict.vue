@@ -98,15 +98,30 @@ function render() {
     const actual = r.actual || []
     const predicted = r.predicted || []
     const k = Math.min(dates.length, actual.length, predicted.length)
+    const xBase = dates.slice(-k)
+    const actBase = actual.slice(-k)
+    const predBase = predicted.slice(-k)
+    // 追加下一交易日预测点：实际值留空，预测线延伸一格
+    const hasNext = r.next_day_pred != null
+    const xData = hasNext ? [...xBase, r.next_day_date || '下一交易日'] : xBase
+    const actData = hasNext ? [...actBase, null] : actBase
+    const predData = hasNext ? [...predBase, r.next_day_pred] : predBase
     ch.setOption({
       tooltip: { trigger: 'axis' },
       legend: { top: 0, data: ['实际', '预测'] },
       grid: { left: 48, right: 24, top: 32, bottom: 48 },
-      xAxis: { type: 'category', data: dates.slice(-k), axisLabel: { rotate: 40 } },
+      xAxis: { type: 'category', data: xData, axisLabel: { rotate: 40 } },
       yAxis: { type: 'value', scale: true },
       series: [
-        { name: '实际', type: 'line', showSymbol: false, data: actual.slice(-k), itemStyle: { color: '#1677FF' } },
-        { name: '预测', type: 'line', showSymbol: false, data: predicted.slice(-k), itemStyle: { color: '#F5222D' } },
+        { name: '实际', type: 'line', showSymbol: false, data: actData, itemStyle: { color: '#1677FF' } },
+        {
+          name: '预测', type: 'line', showSymbol: false, data: predData, itemStyle: { color: '#F5222D' },
+          markPoint: hasNext ? {
+            symbol: 'pin', symbolSize: 46,
+            data: [{ name: '下一交易日', coord: [r.next_day_date || '下一交易日', r.next_day_pred], value: r.next_day_pred }],
+            itemStyle: { color: '#FAAD14' }, label: { color: '#fff', formatter: '{c}' }
+          } : undefined,
+        },
       ],
     })
   }
@@ -314,6 +329,9 @@ onBeforeUnmount(() => { ws_close(); ch?.dispose(); cl?.dispose() })
             <el-tag type="info">MAE {{ result.metrics.MAE }}</el-tag>
             <el-tag type="info" style="margin-left:8px">RMSE {{ result.metrics.RMSE }}</el-tag>
             <el-tag type="info" style="margin-left:8px">MAPE {{ result.metrics['MAPE%'] }}%</el-tag>
+            <el-tag v-if="result?.next_day_pred != null" type="warning" style="margin-left:8px">
+              下一交易日 {{ result.next_day_date }} 预测：{{ result.next_day_pred }}
+            </el-tag>
             <el-tag v-if="result?.save_path" type="success" style="margin-left:8px">
               已保存 {{ result.save_path.split('/').pop() }}
             </el-tag>
