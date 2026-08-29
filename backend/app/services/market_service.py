@@ -15,11 +15,32 @@ from typing import Any, Callable, Dict, List, Optional
 import pandas as pd
 
 # ---- pandas 3.0+ 移除了 DataFrame.append，但 baostock 00.9.30 仍依赖它 ----
+# 同时 patch ResultSet.get_data 避免 O(n^2) 逐行 append
 if not getattr(pd.DataFrame, '_patched_append', False):
     def _df_append_compat(self, other, *args, **kwargs):
         return pd.concat([self, other], *args, **kwargs)
     pd.DataFrame.append = _df_append_compat
     pd.DataFrame._patched_append = True
+
+def _patch_get_data():
+    """替换 baostock ResultSet.get_data 为高效版本（一次 concat，不逐行 append）。"""
+    try:
+        from baostock.data.resultset import ResultSet
+    except ImportError:
+        return
+    if getattr(ResultSet.get_data, '_patched', False):
+        return
+    def _get_data(self):
+        rows = []
+        while self.error_code == "0" and self.next():
+            rows.append(self.get_row_data())
+        if not rows:
+            return pd.DataFrame()
+        return pd.DataFrame(rows, columns=self.fields)
+    ResultSet.get_data = _get_data
+    ResultSet.get_data._patched = True
+
+_patch_get_data()
 
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 SRC_DIR = os.path.join(BASE_DIR, "src")
