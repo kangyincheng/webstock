@@ -61,11 +61,13 @@ async def st_scan(params: STScanParams,
         return ms.scan_st(params.months_back, params.before_days, params.after_days,
                           progress_cb=_prog)
 
+    is_demo = False
     try:
+        # 长任务：给足 120s，baostock 一次扫描可能过慢（全市场 3000+ 只）
         records = await asyncio.wait_for(
-            loop.run_in_executor(None, _run), timeout=60.0)
+            loop.run_in_executor(None, _run), timeout=120.0)
     except (Exception, asyncio.TimeoutError) as exc:
-        # baostock 不可达时返回演示数据，按钮不崩
+        # baostock 不可达 / 超时时返回演示数据，按钮不崩
         demo = [
             {"股票名称": "演示-华银电力", "代码": "sh.600744", "开始ST日期": "2024-03-15",
              "结束ST日期": "2024-09-10", "摘帽前涨幅": -3.2, "摘帽后涨幅": 12.8,
@@ -75,10 +77,13 @@ async def st_scan(params: STScanParams,
              "市盈率": -8.4, "市净率": 1.3, "收盘价": 3.45},
         ]
         records = demo
-        logs.append(f"[演示数据] baostock 不可达: {exc}")
+        logs.append(f"[演示数据] baostock 不可达或超时: {exc}")
+        is_demo = True
     result: Dict[str, Any] = {"records": records, "logs": logs[-20:]}
-    cache.set_json(key, result, ex=3600 * 6)
-    return DataResponse(data=result, message=f"扫描 {len(records)} 条记录（含演示数据）")
+    if not is_demo:
+        cache.set_json(key, result, ex=3600 * 6)
+    msg = f"扫描 {len(records)} 条记录" + ("（演示数据）" if is_demo else "")
+    return DataResponse(data=result, message=msg)
 
 
 @router.post("/st-reinstate/scan", response_model=DataResponse)
@@ -87,24 +92,38 @@ async def st_scan(params: STScanParams,
 async def st_reinstate_scan(params: GenericScanParams,
                             request: Request,
                             user: Optional[Dict[str, Any]] = Depends(get_current_user_or_none)):
+    cache = CacheLayer.instance()
+    key = _cache_key("st-reinstate", months_back=params.months_back)
+    cached = cache.get_json(key)
+    if cached is not None:
+        return DataResponse(data=cached, cache_hit=True, message="使用缓存")
+
     ms = get_ms()
     loop = asyncio.get_running_loop()
     logs: list[str] = []
+    is_demo = False
     try:
+        # 长任务：给足 120s
         records = await asyncio.wait_for(
             loop.run_in_executor(
                 None,
                 lambda: ms.scan_st_reinstate(params.months_back, progress_cb=logs.append)),
-            timeout=30.0)
+            timeout=120.0)
     except (Exception, asyncio.TimeoutError) as exc:
         demo = [
-            {"股票名称": "演示-退市国发", "代码": "sh.600001", "退市日期": "2023-12-01",
-             "恢复上市日期": None, "现价": 1.23},
+            {"股票名称": "演示-退市国发", "代码": "sh.600001",
+             "ST开始日期": "2023-12-01", "ST转正日期": None,
+             "股价": 1.23, "净资产": 2.05, "市盈率": -18.5,
+             "市净率": 0.6, "量比": 1.25, "换手": 0.9},
         ]
         records = demo
-        logs.append(f"[演示数据] baostock 不可达: {exc}")
-    return DataResponse(data={"records": records, "logs": logs[-20:]},
-                        message=f"扫描 {len(records)} 条（含演示数据）")
+        logs.append(f"[演示数据] baostock 不可达或超时: {exc}")
+        is_demo = True
+    result: Dict[str, Any] = {"records": records, "logs": logs[-20:]}
+    if not is_demo:
+        cache.set_json(key, result, ex=3600 * 6)
+    msg = f"扫描 {len(records)} 条" + ("（演示数据）" if is_demo else "")
+    return DataResponse(data=result, message=msg)
 
 
 # ---------- 市场温度计（只读：不审计，避免仪表板每次打开都刷日志）----------
