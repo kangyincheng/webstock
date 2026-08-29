@@ -23,7 +23,7 @@ onMounted(load)
 <template>
   <div>
     <h2 class="page-title">要约收购（A 股 / 港股）</h2>
-    <p class="page-desc">要约价 / 溢价 / 要约比例 / 起止日期；数据源：tushare → 集思路抓取 → 演示数据。</p>
+    <p class="page-desc">要约价 / 溢价 / 进度 / 公告日期；数据源：集思录实时抓取（A股 astock / 港股 hk）。</p>
     <div class="card">
       <el-radio-group v-model="market" style="margin-bottom:12px">
         <el-radio-button label="cn">A股</el-radio-button>

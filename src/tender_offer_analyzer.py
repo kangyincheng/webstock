@@ -45,45 +45,52 @@ def _try_import_baostock():
 # 网页抓取：集思录 套利股/要约
 # ---------------------------------------------------------------------------
 
+def _pick(cell, *candidates, default=None):
+    """从 cell 里按候选字段名取第一个非空（非 "-"）值。"""
+    for c in candidates:
+        if c in cell and cell[c] not in (None, "", "-"):
+            return cell[c]
+    return default
+
+
 def _fetch_jisilu_tender(market="cn", progress_callback=None):
-    """尝试从集思录获取 A 股或港股要约数据。
+    """从集思录获取 A 股或港股要约/套利数据。
 
     market: 'cn' A股 / 'hk' 港股
     返回： DataFrame 或 None（失败）
+
+    接口（JSON，无需登录）：
+      A股  https://www.jisilu.cn/data/taoligu/astock_arbitrage_list/
+      港股 https://www.jisilu.cn/data/taoligu/hk_arbitrage_list/
+    返回格式：{"page":1,"rows":[{"id":..,"cell":{...}}]}
     """
     def log(msg):
         if progress_callback:
             progress_callback(msg)
     try:
         import urllib.request
-        import urllib.parse
         import json
     except Exception as e:
         log(f"集思录抓取：依赖模块缺少 {e}")
         return None
 
-    # 集思录接口/页面：实际格式需要登录后拿到；这里尽力尝试 JSON api
     urls = {
-        "cn": [
-            "https://www.jisilu.cn/data/taoligu/get_list/?type=cna",
-            "https://www.jisilu.cn/data/taoligu/",
-        ],
-        "hk": [
-            "https://www.jisilu.cn/data/taoligu/get_list/?type=hka",
-            "https://www.jisilu.cn/data/taoligu/?type=hka",
-        ],
+        "cn": ["https://www.jisilu.cn/data/taoligu/astock_arbitrage_list/"],
+        "hk": ["https://www.jisilu.cn/data/taoligu/hk_arbitrage_list/"],
     }
     headers = {
         "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                        "AppleWebKit/537.36 (KHTML, like Gecko) "
                        "Chrome/124 Safari/537.36"),
         "Accept": "application/json,text/html,*/*;q=0.8",
+        "X-Requested-With": "XMLHttpRequest",
+        "Referer": "https://www.jisilu.cn/data/taoligu/",
     }
 
     for url in urls.get(market, []):
         try:
             req = urllib.request.Request(url, headers=headers)
-            with urllib.request.urlopen(req, timeout=8) as resp:
+            with urllib.request.urlopen(req, timeout=10) as resp:
                 data = resp.read().decode("utf-8", errors="ignore")
             df = _parse_jisilu(data, market)
             if df is not None and not df.empty:
@@ -94,87 +101,75 @@ def _fetch_jisilu_tender(market="cn", progress_callback=None):
 
 
 def _parse_jisilu(text, market):
-    """尽力从集思录返回内容（HTML 或 JSON）解析要约数据。"""
-    rows = []
-    # 1) JSON 列表：形如 {"rows": [{"cell":{...}}, ...]}
+    """解析集思录返回的 JSON：{"page":1,"rows":[{"id":..,"cell":{...}}]}。"""
+    import json
     try:
-        import json
         obj = json.loads(text)
-        rows_data = None
-        if isinstance(obj, dict):
-            rows_data = obj.get("rows") or obj.get("data") or obj.get("result")
-        if isinstance(rows_data, list):
-            for r in rows_data:
-                cell = r.get("cell") if isinstance(r, dict) else r
-                if isinstance(cell, dict):
-                    item = _map_cell(cell, market)
-                    if item:
-                        rows.append(item)
     except Exception:
-        pass
+        return None
+    rows_data = None
+    if isinstance(obj, dict):
+        rows_data = obj.get("rows") or obj.get("data") or obj.get("result")
+    if not isinstance(rows_data, list):
+        return None
+    if market == "cn":
+        return _build_cn_rows(rows_data)
+    if market == "hk":
+        return _build_hk_rows(rows_data)
+    return None
 
-    # 2) HTML 解析：正则提取 td 或 script 中的 window.__INITIAL_STATE__ 等
-    if not rows:
-        script_match = re.search(
-            r"window\.__INITIAL_STATE__\s*=\s*(\{.*?\});", text, re.S)
-        if script_match:
-            try:
-                import json
-                obj = json.loads(script_match.group(1))
-                # 简单遍历查找 rows 数组
-                stack = [obj]
-                while stack:
-                    cur = stack.pop()
-                    if isinstance(cur, list):
-                        if all(isinstance(x, dict) for x in cur) and len(cur) >= 1 \
-                                and any("代码" in str(k) or "code" in str(k).lower()
-                                        or "price" in str(k).lower()
-                                        for d in cur for k in d.keys()):
-                            for d in cur[:500]:
-                                item = _map_cell(d, market)
-                                if item:
-                                    rows.append(item)
-                    elif isinstance(cur, dict):
-                        stack.extend(cur.values())
-            except Exception:
-                pass
 
+def _build_cn_rows(rows_data):
+    """A股要约/套利（集思录 astock_arbitrage_list，多为换股合并/要约）。"""
+    rows = []
+    for r in rows_data:
+        cell = r.get("cell") if isinstance(r, dict) else r
+        if not isinstance(cell, dict):
+            continue
+        name = _pick(cell, "stock_nm", "stock_name", "name")
+        code = _pick(cell, "stock_id", "stock_code", "code")
+        if not name or not code:
+            continue
+        rows.append({
+            "股票名称": str(name).strip(),
+            "股票代码": _std_code(str(code).strip(), "cn"),
+            "当前股价": _to_float(_pick(cell, "price", "last_price", "close")),
+            "安全价": _to_float(_pick(cell, "safe_price", "choose_price")),
+            "折价率(%)": _to_float(_pick(cell, "discount_rt", "choose_discount_rt")),
+            "类型": _pick(cell, "type_cd", "type", default="-") or "-",
+            "描述": _pick(cell, "descr", "description", default="-") or "-",
+        })
     if not rows:
         return None
-
-    cols = ["股票名称", "股票代码", "当前股价", "要约价", "要约溢价(%)",
-            "要约比例(%)", "要约开始日期", "要约结束日期"]
-    return pd.DataFrame(rows, columns=cols)
+    return pd.DataFrame(rows)
 
 
-def _map_cell(cell, market):
-    """把集思录的任意 cell dict 映射到标准列。字段名尽力兼容。"""
-    def pick(*candidates, default=None):
-        for c in candidates:
-            if c in cell and cell[c] not in (None, "", "-"):
-                return cell[c]
-        return default
-
-    name = pick("股票名称", "名称", "name", "stock_name", "stk_name", "title", "sec_name")
-    code = pick("股票代码", "代码", "code", "stock_code", "stk_code", "sec_code")
-    cur_p = pick("当前价", "现价", "最新价", "当前股价", "price", "cur_price", "close", "last_price")
-    offer_p = pick("要约价", "收购价", "要约价格", "tender_price", "offer_price")
-    prem = pick("溢价率", "要约溢价", "溢价", "要约溢价(%)", "premium", "premium_rate")
-    ratio = pick("要约比例", "收购比例", "比例", "要约比例(%)", "ratio", "offer_ratio")
-    sdt = pick("开始日期", "要约起始", "要约开始日期", "起始日", "start_date", "begin_date", "tender_start")
-    edt = pick("结束日期", "要约结束", "要约结束日期", "截止日", "end_date", "expire_date", "tender_end")
-    if not name or not code:
+def _build_hk_rows(rows_data):
+    """港股要约/私有化（集思录 hk_arbitrage_list）。"""
+    rows = []
+    for r in rows_data:
+        cell = r.get("cell") if isinstance(r, dict) else r
+        if not isinstance(cell, dict):
+            continue
+        name = _pick(cell, "stock_nm", "stock_name", "name")
+        code = _pick(cell, "stock_code", "code")
+        if not name or not code:
+            continue
+        rows.append({
+            "股票名称": str(name).strip(),
+            "股票代码": _std_code(str(code).strip(), "hk"),
+            "当前股价": _to_float(_pick(cell, "price", "last_price", "close")),
+            "要约价": _to_float(_pick(cell, "redeem_price", "tender_price", "offer_price")),
+            "要约溢价(%)": _to_float(_pick(cell, "arbitrage_space", "premium", "premium_rate")),
+            "进度": _pick(cell, "process", default="-") or "-",
+            "要约人": _pick(cell, "offeror", default="-") or "-",
+            "方式": _pick(cell, "way", default="-") or "-",
+            "公告日期": _fmt_date(_pick(cell, "release_date", "announce_date")),
+            "描述": _pick(cell, "descr", "description", default="-") or "-",
+        })
+    if not rows:
         return None
-    return {
-        "股票名称": str(name).strip(),
-        "股票代码": _std_code(str(code).strip(), market),
-        "当前股价": _to_float(cur_p),
-        "要约价": _to_float(offer_p),
-        "要约溢价(%)": _to_float(prem),
-        "要约比例(%)": _to_float(ratio),
-        "要约开始日期": _fmt_date(sdt),
-        "要约结束日期": _fmt_date(edt),
-    }
+    return pd.DataFrame(rows)
 
 
 def _to_float(v):
@@ -439,6 +434,8 @@ class TenderOfferAnalyzer:
         """若表中有 要约价 与 当前价 但溢价缺失/为 None，则补算。"""
         if df is None or df.empty:
             return df
+        if "要约价" not in df.columns or "当前股价" not in df.columns:
+            return df  # 缺要约价/当前价则跳过，避免给 A 股表注入空 要约溢价(%) 列
         df = df.copy()
         cur = pd.to_numeric(df.get("当前股价"), errors="coerce")
         offer = pd.to_numeric(df.get("要约价"), errors="coerce")
