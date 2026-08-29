@@ -120,10 +120,10 @@ function render() {
             symbol: 'pin', symbolSize: 46,
             data: [{ name: '下一交易日', coord: [r.next_day_date || '下一交易日', r.next_day_pred], value: r.next_day_pred }],
             itemStyle: { color: '#FAAD14' }, label: { color: '#fff', formatter: '{c}' }
-          } : undefined,
+          } : { data: [] },
         },
       ],
-    })
+    }, true)
   }
   if (cl) {
     const tl = r.train_losses || []
@@ -139,7 +139,7 @@ function render() {
         { name: 'Train', type: 'line', showSymbol: false, smooth: true, data: tl, itemStyle: { color: '#1677FF' } },
         { name: 'Val',   type: 'line', showSymbol: false, smooth: true, data: vl, itemStyle: { color: '#F5222D' } },
       ],
-    })
+    }, true)
   }
 }
 

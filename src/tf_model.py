@@ -46,13 +46,17 @@ def build_model(model_type, input_size, seq_len=60, **kwargs):
         x = inputs
         for i in range(num_layers):
             return_sequences = (i < num_layers - 1)
-            layer = rnn_cls(
+            # recurrent_dropout 在 Keras 3 (TF 2.16+) 已移除，仅 Keras 2 支持
+            rnn_kwargs = dict(
                 units=hidden_size,
                 return_sequences=return_sequences,
                 dropout=(dropout if num_layers > 1 else 0.0),
-                recurrent_dropout=0.0,
                 kernel_initializer="glorot_uniform",
             )
+            try:
+                layer = rnn_cls(**rnn_kwargs, recurrent_dropout=0.0)
+            except TypeError:
+                layer = rnn_cls(**rnn_kwargs)
             if bidirectional:
                 layer = layers.Bidirectional(layer)
             x = layer(x)
@@ -69,7 +73,9 @@ def build_model(model_type, input_size, seq_len=60, **kwargs):
         # 1) 输入投影到 d_model
         x = layers.Dense(d_model)(inputs)  # (B, seq_len, d_model)
         # 2) 位置编码（固定正弦/余弦，与 PyTorch 版对齐）
-        x = x + _positional_encoding(seq_len, d_model)
+        # Keras 3 中不能直接对符号张量做 + 运算，用 Lambda 包装
+        pe = _positional_encoding(seq_len, d_model)
+        x = layers.Lambda(lambda inp, pv=pe: inp + pv)(x)
         x = layers.Dropout(dropout)(x)
         # 3) MultiHeadAttention 堆叠
         for _ in range(num_layers):
@@ -90,9 +96,8 @@ def build_model(model_type, input_size, seq_len=60, **kwargs):
 # ---------------- 辅助函数 ----------------
 
 def _positional_encoding(seq_len, d_model):
-    """固定正弦/余弦位置编码（返回 constant tensor shape (1, seq_len, d_model)）。"""
+    """固定正弦/余弦位置编码（返回 numpy array shape (1, seq_len, d_model)）。"""
     import numpy as np
-    tf = _import_tf()
     position = np.arange(seq_len)[:, None]  # (seq_len, 1)
     div_term = np.exp(
         np.arange(0, d_model, 2) * (-np.log(10000.0) / d_model)
@@ -103,7 +108,7 @@ def _positional_encoding(seq_len, d_model):
         pe[0, :, 1::2] = np.cos(position * div_term)
     else:
         pe[0, :, 1::2] = np.cos(position * div_term)[:, :-1]
-    return tf.constant(pe)
+    return pe
 
 
 def _transformer_block(x, d_model, nhead, dim_feedforward, dropout):
