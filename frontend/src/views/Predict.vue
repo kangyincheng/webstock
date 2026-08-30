@@ -172,6 +172,12 @@ onBeforeUnmount(() => { ws_close(); ch?.dispose(); cl?.dispose() })
 
 <template>
   <div>
+    <!-- 移动端浮动启动按钮：小屏永远可见，避免滚动/布局把启动按钮挤出视口 -->
+    <button class="predict-fab" :class="{ 'is-loading': running }" @click="start" :disabled="running">
+      <span v-if="running">执行中…</span>
+      <span v-else>{{ result ? '重新预测' : '开始预测' }}</span>
+    </button>
+
     <h2 class="page-title">股票预测（PyTorch / TensorFlow 双框架）</h2>
     <p class="page-desc">训练过程通过 WebSocket 实时推送 epoch/Loss；完成后展示 实际 vs 预测 曲线与评估指标。</p>
 
@@ -281,8 +287,8 @@ onBeforeUnmount(() => { ws_close(); ch?.dispose(); cl?.dispose() })
             <el-form-item label="保存名">
               <el-input v-model="form.model_name" placeholder="空=自动生成" />
             </el-form-item>
-            <el-form-item>
-              <el-button type="primary" :loading="running" @click="start">开始训练</el-button>
+            <el-form-item class="predict-submit-item">
+              <el-button type="primary" size="large" :loading="running" @click="start" class="predict-submit-btn">开始训练 / 执行预测</el-button>
             </el-form-item>
           </el-form>
         </div>
@@ -352,6 +358,43 @@ onBeforeUnmount(() => { ws_close(); ch?.dispose(); cl?.dispose() })
 </template>
 
 <style scoped>
+/* ============ 移动端浮动 FAB 启动按钮：仅 ≤768px 显示，桌面隐藏 ============ */
+.predict-fab {
+  display: none;  /* 桌面端不显示 */
+}
+@media (max-width: 768px) {
+  .predict-fab {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    position: fixed;
+    right: 16px;
+    bottom: 18px;
+    z-index: 1000;
+    padding: 12px 20px;
+    min-width: 128px;
+    height: 48px;
+    border-radius: 24px;
+    border: none;
+    background: linear-gradient(135deg, #1677FF 0%, #4096FF 100%);
+    color: #fff;
+    font-size: 15px;
+    font-weight: 600;
+    box-shadow: 0 6px 18px rgba(22, 119, 255, 0.35);
+    cursor: pointer;
+    transition: transform 0.15s ease, opacity 0.15s ease, box-shadow 0.15s ease;
+  }
+  .predict-fab:active { transform: scale(0.97); }
+  .predict-fab:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+  }
+  .predict-fab.is-loading {
+    background: linear-gradient(135deg, #86909c 0%, #4e5969 100%);
+    box-shadow: 0 6px 18px rgba(78, 89, 105, 0.35);
+  }
+}
+
 /* ============ 移动端 ≤768px：拆成单列、标签上移、避免重叠 ============ */
 @media (max-width: 768px) {
   :deep(.el-row) { flex-direction: column; row-gap: 12px; }
@@ -376,6 +419,7 @@ onBeforeUnmount(() => { ws_close(); ch?.dispose(); cl?.dispose() })
   }
   :deep(.el-form-item__content) {
     margin-left: 0 !important;
+    line-height: normal;
   }
   :deep(.el-form-item .el-select),
   :deep(.el-form-item .el-input),
@@ -385,6 +429,50 @@ onBeforeUnmount(() => { ws_close(); ch?.dispose(); cl?.dispose() })
     width: 100%;
   }
   :deep(.el-input-number) { width: 100% !important; }
+
+  /* -------- 提交按钮（predict-submit-item：无 label 的那一项）：移动端强制可见 --------
+     根因：没有 label 的 el-form-item 在 Element Plus label-position="right" + 移动端 display:block
+     的样式下，__label 仍是空的块级元素（高度=0但影响 flex 对齐），按钮可能被 __content 的高度坍塌挤出或被父容器覆盖。
+     处理：1. 空 label 显式隐藏/高度=0；2. content 占满整行；3. 按钮全宽、块级、足够内边距；4. 容器加足够 padding 避免被上面元素遮挡。 */
+  :deep(.predict-submit-item) {
+    display: block;
+    margin-top: 16px;
+    margin-bottom: 20px;
+    padding: 12px 0 4px 0;
+    border-top: 1px dashed #e5e6eb;
+    visibility: visible !important;
+    opacity: 1 !important;
+  }
+  :deep(.predict-submit-item .el-form-item__label) {
+    display: none !important;
+    height: 0;
+    padding: 0;
+    margin: 0;
+  }
+  :deep(.predict-submit-item .el-form-item__content) {
+    display: block;
+    width: 100%;
+    margin-left: 0 !important;
+    line-height: normal;
+    min-height: 48px;
+    visibility: visible !important;
+  }
+  :deep(.predict-submit-item .el-form-item__content > .el-form-item__content-wrap) {
+    display: block;
+    width: 100%;
+  }
+  :deep(.predict-submit-btn) {
+    display: block !important;
+    width: 100% !important;
+    height: 48px !important;
+    min-height: 48px !important;
+    line-height: 46px !important;
+    font-size: 16px !important;
+    font-weight: 600 !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    box-sizing: border-box !important;
+  }
 
   :deep(.el-radio-group) { display: flex; flex-wrap: wrap; gap: 6px; }
 
