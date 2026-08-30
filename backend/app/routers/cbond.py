@@ -77,7 +77,7 @@ async def tender(params: TenderParams,
                  request: Request,
                  user: Optional[Dict[str, Any]] = Depends(get_current_user_or_none)):
     cache = CacheLayer.instance()
-    key = f"webstock:tender:{params.market}:v1"
+    key = f"webstock:tender:{params.market}:v2"
     cached = cache.get_json(key)
     if cached is not None:
         return DataResponse(data=cached, cache_hit=True)
