@@ -1,16 +1,17 @@
 """ST 股票摘帽分析。
 
-数据源：baostock（与 StockDataLoader 相同）。
+数据源：baostock。
 
-核心逻辑：
-  1. 拉取指定日期范围内所有 A 股的日 K 线（含 isST 字段）
-  2. 扫描每只股票的 isST 时间序列，找出由 1 -> 0 的转折点 = 摘帽日
-  3. 计算摘帽前 N 天、摘帽后 N 天的涨跌幅
-  4. 同时取下摘帽日的市盈率（peTTM）、市净率（pbMRQ）、收盘价
+核心策略（名称比对法）：
+  1. 拉取最新交易日全市场 A 股（含名称）—— baostock query_all_stock(day=最新交易日)
+  2. 拉取 N 个月前交易日全市场 A 股（含名称）—— baostock query_all_stock(day=N月前交易日)
+  3. 名称比对：N 个月前名称含 ST、最新名称不含 ST ——> 该股已摘帽
+  4. 对每只摘帽股，用日 K 的 isST 字段定位摘帽日（窗口内最近一次 isST 1->0），
+     再计算摘帽前 N 天 / 摘帽后 N 天涨跌幅，并取摘帽日收盘价、peTTM、pbMRQ
 
 字段定义：
   isST = 1 表示当日处于 ST/*ST 状态；isST = 0 表示正常
-  摘帽日 = 第一条 isST 由 1 变成 0 的交易日
+  名称含 ST = 股票名称中包含 "ST"（ST / *ST / S*ST 等）
 """
 import os
 import time
@@ -39,8 +40,18 @@ def _months_ago(months):
     return target.strftime("%Y-%m-%d")
 
 
+def _name_has_st(name):
+    """判断股票名称是否包含 ST 标识（ST / *ST / S*ST 等）。
+
+    A 股名称均为中文，其中出现 "ST" 必然代表 ST 状态。
+    """
+    if not name:
+        return False
+    return "ST" in str(name).upper()
+
+
 class STAnalyzer:
-    """ST 摘帽分析器。
+    """ST 摘帽分析器（名称比对法）。
 
     使用方式：
         analyzer = STAnalyzer(data_dir="data")
@@ -70,19 +81,42 @@ class STAnalyzer:
         except Exception:
             pass
 
-    # ---------------- 股票列表 ----------------
-    def _get_all_stock_codes(self, bs, date):
-        """获取指定日期全市场 A 股代码列表（排除指数）。"""
-        rs = bs.query_all_stock(day=date)
-        if rs.error_code != "0":
-            raise RuntimeError(f"query_all_stock 失败: {rs.error_msg}")
-        df = rs.get_data()
-        if df is None or df.empty:
-            return []
-        # 过滤 A 股主板/创业板/科创板，排除指数、基金
-        # baostock 股票代码：sh.6xxxxx / sh.688xxx / sz.000xxx / sz.002xxx / sz.300xxx
-        codes = df[df["code"].str.match(r"^(sh\.6|sh\.688|sz\.0|sz\.3)")]["code"]
-        return codes.tolist()
+    # ---------------- 全市场 A 股 + 名称（按日期快照）----------------
+    def _get_all_stock_with_names(self, bs, target_date, max_lookback=15):
+        """获取指定日期（或最近交易日）全市场 A 股代码与名称。
+
+        baostock query_all_stock(day=X) 返回 X 当日上市股票及其当时的名称，
+        非交易日可能为空，因此向前回溯最多 max_lookback 天寻找有效交易日。
+
+        返回 (name_map, actual_date)：
+          name_map = {code: name}（仅 A 股主板/创业板/科创板，排除指数、基金）
+          actual_date = 实际命中的交易日字符串（YYYY-MM-DD）
+        """
+        base = datetime.strptime(target_date, "%Y-%m-%d")
+        for back in range(max_lookback):
+            day = (base - timedelta(days=back)).strftime("%Y-%m-%d")
+            rs = bs.query_all_stock(day=day)
+            if rs.error_code != "0":
+                continue
+            try:
+                df = rs.get_data()
+            except Exception:
+                df = None
+            if df is None or df.empty or "code" not in df.columns:
+                continue
+            mask = df["code"].astype(str).str.match(r"^(sh\.6|sh\.688|sz\.0|sz\.3)")
+            df_a = df[mask]
+            if df_a.empty:
+                continue
+            name_col = next(
+                (c for c in df_a.columns if "name" in c.lower()), None)
+            name_map = {}
+            for _, r in df_a.iterrows():
+                code = str(r["code"])
+                name = str(r[name_col]) if (name_col and name_col in df_a.columns) else ""
+                name_map[code] = name
+            return name_map, day
+        return {}, target_date
 
     # ---------------- 拉取日 K ----------------
     def _fetch_kline(self, bs, code, start_date, end_date):
@@ -113,84 +147,42 @@ class STAnalyzer:
                 df[col] = pd.to_numeric(df[col], errors="coerce")
         return df
 
-    # ---------------- 股票名称 ----------------
-    def _get_stock_names(self, bs, codes):
-        """通过 query_stock_basic 拉股票名称映射（按列名取，避免行序随机）。
-
-        baostock query_stock_basic 返回列顺序是 code / code_name / ipoDate /
-        outDate / type / status，但不同版本 / API 接口有可能调换；此处统一按
-        字段名取值，彻底规避「row[0]/row[1] 赌顺序导致 name_map 全空」的 bug。
-        """
-        rs = bs.query_stock_basic()
-        name_map = {}
-        if rs.error_code != "0":
-            return name_map
-        df = None
-        try:
-            df = rs.get_data()
-        except Exception:
-            pass
-        # 路径 1：DataFrame（按列名）
-        if df is not None and not df.empty:
-            # 优先按列名取；列名可能是 "code"/"code_name"，也可能是其它
-            code_col = next((c for c in df.columns if c.lower() == "code"), None)
-            name_col = next(
-                (c for c in df.columns if "name" in c.lower()), None)
-            if code_col is not None and name_col is not None:
-                for _, r in df[[code_col, name_col]].iterrows():
-                    c, n = r.iloc[0], r.iloc[1]
-                    if c and n:
-                        name_map[str(c)] = str(n)
-            else:
-                # fallback：按 rs.fields 推断列索引
-                fields = list(getattr(rs, "fields", []) or [])
-                ci = next((i for i, f in enumerate(fields) if f.lower() == "code"), 0)
-                ni = next((i for i, f in enumerate(fields) if "name" in f.lower()), 1)
-                for _, r in df.iterrows():
-                    if len(r) > max(ci, ni):
-                        c, n = r.iloc[ci], r.iloc[ni]
-                        if c and n:
-                            name_map[str(c)] = str(n)
-            return name_map
-        # 路径 2：游标迭代
-        fields = list(getattr(rs, "fields", []) or [])
-        ci = next((i for i, f in enumerate(fields) if f.lower() == "code"), 0)
-        ni = next((i for i, f in enumerate(fields) if "name" in f.lower()), 1)
-        while rs.error_code == "0" and rs.next():
-            row = rs.get_row_data()
-            if len(row) > max(ci, ni):
-                c, n = row[ci], row[ni]
-                if c and n:
-                    name_map[str(c)] = str(n)
-        return name_map
-
-    # ---------------- 找出摘帽日 ----------------
+    # ---------------- 在窗口内定位摘帽日 ----------------
     @staticmethod
-    def _find_uncap_date(df):
-        """在单只股票的日 K 中找出摘帽日（isST 由 1 -> 0）。
+    def _find_uncap_date_in_window(df, start_date, end_date):
+        """在 [start_date, end_date] 窗口内找出最近一次摘帽日（isST 由 1 -> 0）。
 
-        返回 (uncap_date, st_start_date) 或 None。
-        - uncap_date: 摘帽日（isST 由 1 变 0 的首个交易日）
-        - st_start_date: 进入 ST 的起始日（isST 第一次为 1 的日期）
+        名称比对已确认：start_date 时含 ST、end_date 时不含 ST，
+        故窗口内必存在一次 isST 1->0 的摘帽；取最近一次以应对多次进出 ST 的情况。
+
+        返回 (uncap_date, st_start_date) 或 None：
+          - uncap_date: 窗口内最后一次 isST 1->0 的交易日
+          - st_start_date: 摘帽前最近一段 ST 的起始日（isST 首次为 1 的日期）
         """
-        if df.empty or "isST" not in df.columns:
+        if df is None or df.empty or "isST" not in df.columns:
             return None
         df = df.sort_values("date").reset_index(drop=True)
+        mask = (df["date"] >= start_date) & (df["date"] <= end_date)
+        df = df[mask].reset_index(drop=True)
+        if df.empty:
+            return None
         st_mask = df["isST"] == 1
         if not st_mask.any():
-            return None  # 从来没 ST 过
-        # 找 ST 起始日
-        st_start = df.loc[st_mask, "date"].iloc[0]
-        # 找摘帽日：isST 从 1 变 0
-        # 即找 st_mask 中由 True 变 False 的第一处
+            return None  # 窗口内从未 ST（isST 字段与名称比对不一致）
+        # 找最后一次 isST 由 1 变 0 的位置
         uncap_idx = None
         for i in range(1, len(df)):
             if df.loc[i - 1, "isST"] == 1 and df.loc[i, "isST"] == 0:
-                uncap_idx = i
-                break
+                uncap_idx = i  # 持续覆盖以取最近一次
         if uncap_idx is None:
-            return None  # 当前仍 ST，未摘帽
+            return None  # 窗口内仍处于 ST（isST 字段与名称比对不一致）
         uncap_date = df.loc[uncap_idx, "date"]
+        # 摘帽前最近一段 ST 的起始日
+        st_before = df.iloc[:uncap_idx]
+        st_before_mask = st_before["isST"] == 1
+        if not st_before_mask.any():
+            return None
+        st_start = st_before.loc[st_before_mask, "date"].iloc[0]
         return uncap_date, st_start
 
     # ---------------- 计算涨幅 ----------------
@@ -201,7 +193,7 @@ class STAnalyzer:
         返回 (pre_change_pct, post_change_pct, close_at_uncap, pe_at_uncap, pb_at_uncap)。
         若数据不足返回 None。
         """
-        if df.empty:
+        if df is None or df.empty:
             return None
         df = df.sort_values("date").reset_index(drop=True)
         # 找摘帽日的位置
@@ -242,10 +234,16 @@ class STAnalyzer:
     # ---------------- 主入口：扫描并分析 ----------------
     def scan_and_analyze(self, months_back=10, before_days=30, after_days=30,
                          progress_callback=None):
-        """扫描最近 N 个月内的摘帽 ST 股，返回结果 DataFrame。
+        """通过名称比对识别摘帽 ST 股，并计算摘帽前/后涨跌幅。
+
+        策略：
+          1. 拉取最新交易日全市场 A 股（含名称）
+          2. 拉取 N 个月前交易日全市场 A 股（含名称）
+          3. 名称比对：N 个月前名称含 ST、最新名称不含 ST -> 已摘帽
+          4. 对每只摘帽股，用日 K 的 isST 字段定位摘帽日，计算摘帽前/后涨跌幅
 
         Args:
-            months_back: 向前查看的月数（默认 10）
+            months_back: 名称比对回溯的月数（默认 10）
             before_days: 摘帽前 N 个交易日（默认 30）
             after_days: 摘帽后 N 个交易日（默认 30）
             progress_callback: 回调函数 (msg) -> None
@@ -254,11 +252,10 @@ class STAnalyzer:
             DataFrame，列：股票名称, 代码, 开始ST日期, 结束ST日期,
                           摘帽前涨幅, 摘帽后涨幅, 市盈率, 市净率, 收盘价
         """
-        end_date = _today_str()
-        start_date = _months_ago(months_back)
-        # 为了计算摘帽前 N 天，需要再往前多取 before_days + buffer
-        # 这里直接多取 3 个月作为缓冲
-        buffer_start = (_months_ago(months_back + 3))
+        today = _today_str()
+        start_target = _months_ago(months_back)
+        # 为了计算摘帽前 N 天，K 线再多回溯 3 个月作为缓冲
+        buffer_start = _months_ago(months_back + 3)
 
         def log(msg):
             if progress_callback:
@@ -267,37 +264,47 @@ class STAnalyzer:
         log(f"登录 baostock ...")
         bs = self._login()
         try:
-            # 1. 全市场股票列表
-            log(f"获取 {end_date} 全市场股票代码 ...")
-            codes = self._get_all_stock_codes(bs, end_date)
-            log(f"共 {len(codes)} 只股票，开始扫描 ...")
+            # 1. 最新交易日全市场 A 股（含名称）
+            log(f"获取最新交易日全市场股票名称（目标 {today}）...")
+            latest_map, end_date = self._get_all_stock_with_names(bs, today)
+            log(f"最新交易日 {end_date}：共 {len(latest_map)} 只 A 股")
 
-            # 2. 股票名称
-            log("拉取股票名称表 ...")
-            name_map = self._get_stock_names(bs, codes)
+            # 2. N 个月前交易日全市场 A 股（含名称）
+            log(f"获取 {months_back} 个月前全市场股票名称（目标 {start_target}）...")
+            old_map, start_date = self._get_all_stock_with_names(bs, start_target)
+            log(f"起始交易日 {start_date}：共 {len(old_map)} 只 A 股")
 
-            # 3. 逐只扫描
+            # 3. 名称比对：识别摘帽股
+            #    N 个月前名称含 ST、最新名称不含 ST -> 已摘帽
+            hat_removed = []
+            for code, new_name in latest_map.items():
+                old_name = old_map.get(code)
+                if not old_name:
+                    continue  # N 个月前尚未上市
+                if _name_has_st(old_name) and not _name_has_st(new_name):
+                    hat_removed.append((code, new_name))
+            log(f"名称比对：{start_date} 含 ST 而 {end_date} 不含 ST -> "
+                f"{len(hat_removed)} 只摘帽股")
+
+            # 4. 逐只定位摘帽日 + 计算涨跌幅
             results = []
-            total = len(codes)
+            total = len(hat_removed)
             success = 0
-            for i, code in enumerate(codes, 1):
+            for i, (code, name) in enumerate(hat_removed, 1):
                 try:
                     df = self._fetch_kline(bs, code, buffer_start, end_date)
-                    if df.empty:
+                    if df is None or df.empty:
                         continue
-                    info = self._find_uncap_date(df)
+                    info = self._find_uncap_date_in_window(df, start_date, end_date)
                     if not info:
-                        continue
+                        continue  # isST 字段与名称比对不一致，跳过
                     uncap_date, st_start = info
-                    # 只统计摘帽日在 [start_date, end_date] 范围内的
-                    if uncap_date < start_date:
-                        continue
                     chg = self._compute_change(df, uncap_date, before_days, after_days)
                     if chg is None:
                         continue
                     pre_change, post_change, close, pe, pb = chg
                     results.append({
-                        "股票名称": name_map.get(code, ""),
+                        "股票名称": name,
                         "代码": code,
                         "开始ST日期": st_start,
                         "结束ST日期": uncap_date,
@@ -305,25 +312,25 @@ class STAnalyzer:
                         "摘帽后涨幅": round(post_change, 2),
                         "市盈率": round(pe, 2) if pe is not None else None,
                         "市净率": round(pb, 2) if pb is not None else None,
-                        "收盘价": round(close, 3) if not pd.isna(close) else None,
+                        "收盘价": round(close, 3) if close is not None and not pd.isna(close) else None,
                     })
                     success += 1
-                except Exception as e:
+                except Exception:
                     # 单只失败不影响整体
                     pass
-                if i % 50 == 0 or i == total:
-                    log(f"进度 {i}/{total}  已找到 {success} 只摘帽股")
-                # baostock 限速：每只间隔 0.1s
+                if i % 10 == 0 or i == total:
+                    log(f"进度 {i}/{total}  已成功 {success} 只")
+                # baostock 限速
                 time.sleep(0.01)
         finally:
             self._logout(bs)
 
         log(f"扫描完成，共找到 {len(results)} 只摘帽 ST 股")
+        cols = ["股票名称", "代码", "开始ST日期", "结束ST日期",
+                "摘帽前涨幅", "摘帽后涨幅", "市盈率", "市净率", "收盘价"]
         if not results:
-            return pd.DataFrame(columns=[
-                "股票名称", "代码", "开始ST日期", "结束ST日期",
-                "摘帽前涨幅", "摘帽后涨幅", "市盈率", "市净率", "收盘价"])
-        df_out = pd.DataFrame(results)
+            return pd.DataFrame(columns=cols)
+        df_out = pd.DataFrame(results, columns=cols)
         # 按摘帽日倒序
         df_out = df_out.sort_values("结束ST日期", ascending=False).reset_index(drop=True)
         return df_out
