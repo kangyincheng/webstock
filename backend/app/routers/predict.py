@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, Query, Request
 
 from ..schemas import DataResponse, PredictParams
 from ..services.train_service import TrainingService
+from ..services.stock_search_service import StockSearchService
 from ..ws_bus import ws_progress_adapter
 from ..services.audit_service import CATEGORY_PREDICT_TRAIN, CATEGORY_MODEL_DELETE
 from ..deps import audit_action, get_current_user_or_none
@@ -80,3 +81,12 @@ async def delete_model(name: str,
     ts = get_ts()
     ok = ts.delete_model(name)
     return DataResponse(success=ok, message=("已删除" if ok else "未找到或不允许删除"))
+
+
+@router.get("/search", response_model=DataResponse)
+async def search_stock(q: str = Query(default="", description="搜索关键词：代码/名称/简拼"),
+                       limit: int = Query(default=20, ge=1, le=50)):
+    """股票智能搜索：支持代码、名称、拼音首字母简拼。"""
+    svc = StockSearchService.instance()
+    results = svc.search(q, limit=limit)
+    return DataResponse(data={"results": results, "count": len(results)})

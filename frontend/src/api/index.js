@@ -27,6 +27,8 @@ export const predictTask = (id) => http.get(`/predict/task/${id}`).then(unwrap)
 export const listModels = (framework) =>
   http.get('/predict/models', { params: { framework } }).then(unwrap)
 export const deleteModel = (name) => http.delete(`/predict/models/${name}`).then(unwrap)
+export const searchStock = (q) =>
+  http.get('/predict/search', { params: { q } }).then(unwrap)
 
 export const favList = () => http.get('/favorites').then(unwrap)
 export const favAdd = (p) => http.post('/favorites', p).then(unwrap)

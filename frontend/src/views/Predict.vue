@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, reactive, ref, shallowRef, watch } from 'vue'
 import * as echarts from 'echarts'
 import { ElMessage } from 'element-plus'
-import { predictTrain, listModels, deleteModel } from '../api/index.js'
+import { predictTrain, listModels, deleteModel, searchStock } from '../api/index.js'
 
 const form = reactive({
   framework: 'pytorch',
@@ -42,6 +42,24 @@ const lossRef = shallowRef(null)
 let ch = null, cl = null
 let ws = null
 let currentTaskId = null
+
+// ---- 股票智能搜索 ----
+const stockSuggestions = ref([])
+const searchStocks = async (query) => {
+  if (!query || query.trim().length < 1) {
+    stockSuggestions.value = []
+    return
+  }
+  try {
+    const res = await searchStock(query.trim())
+    stockSuggestions.value = (res?.results || []).map(s => ({
+      value: s.code,
+      label: `${s.code} ${s.name}`,
+    }))
+  } catch {
+    stockSuggestions.value = []
+  }
+}
 
 function pushLog(msg) { logs.value.push(msg) }
 
@@ -200,7 +218,19 @@ onBeforeUnmount(() => { ws_close(); ch?.dispose(); cl?.dispose() })
               </el-select>
             </el-form-item>
             <el-form-item label="股票代码">
-              <el-input v-model="form.stock_code" placeholder="sh.600036 / sz.000001" />
+              <el-autocomplete
+                v-model="form.stock_code"
+                :fetch-suggestions="searchStocks"
+                placeholder="输入代码/名称/简拼，如 600036 / 招商银行 / zsyh"
+                :trigger-on-focus="false"
+                clearable
+                style="width: 100%"
+              >
+                <template #default="{ item }">
+                  <span style="float: left">{{ item.value }}</span>
+                  <span style="float: right; color: #999; font-size: 12px">{{ item.label.split(' ').slice(1).join(' ') }}</span>
+                </template>
+              </el-autocomplete>
             </el-form-item>
             <el-form-item label="开始日期">
               <el-input v-model="form.start_date" />
