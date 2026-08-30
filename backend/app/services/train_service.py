@@ -26,6 +26,52 @@ DATA_DIR = os.path.join(BASE_DIR, "backend", "data")
 MODEL_DIR = os.path.join(BASE_DIR, "backend", "models")
 
 
+def _find_next_trade_date(last_date_str: str) -> str | None:
+    """通过 baostock 查询上证指数K线，返回 last_date 之后的第一个真实交易日。
+
+    会自动 login/logout，调用方无需关心 baostock 会话状态。
+    失败时返回 None，由调用方回退。
+    """
+    from datetime import datetime, timedelta
+
+    try:
+        import baostock as bs
+    except ImportError:
+        return None
+
+    try:
+        d0 = datetime.strptime(last_date_str[:10], "%Y-%m-%d")
+        search_end = (d0 + timedelta(days=30)).strftime("%Y-%m-%d")
+
+        lg = bs.login()
+        if lg.error_code != "0":
+            return None
+
+        rs = bs.query_history_k_data_plus(
+            "sh.000001",          # 上证指数
+            "date",
+            start_date=last_date_str[:10],
+            end_date=search_end,
+            frequency="d",
+        )
+
+        next_date = None
+        while rs.error_code == "0" and rs.next():
+            d = rs.get_row_data()[0]
+            if d > last_date_str[:10]:
+                next_date = d
+                break
+
+        bs.logout()
+        return next_date
+    except Exception:
+        try:
+            bs.logout()
+        except Exception:
+            pass
+        return None
+
+
 def _import_pytorch_trainer():
     from trainer import StockTrainer
     return StockTrainer
@@ -201,16 +247,8 @@ class TrainingService:
                 next_inv = loader.inverse_transform_close(next_scaled, loader.target_col)
                 next_pred = round(float(np.asarray(next_inv).ravel()[0]), 4)
                 if loader.df is not None and "date" in loader.df.columns and len(loader.df) > 0:
-                    from datetime import datetime, timedelta
                     last_d = str(loader.df["date"].iloc[-1])[:10]
-                    try:
-                        d0 = datetime.strptime(last_d, "%Y-%m-%d")
-                        nd = d0 + timedelta(days=1)
-                        while nd.weekday() >= 5:  # 跳过周末
-                            nd = nd + timedelta(days=1)
-                        next_date_label = nd.strftime("%Y-%m-%d")
-                    except Exception:
-                        next_date_label = "下一交易日"
+                    next_date_label = _find_next_trade_date(last_d) or "下一交易日"
             except Exception:
                 pass
             result["next_day_pred"] = next_pred
