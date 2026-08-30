@@ -5,7 +5,7 @@ import { stScan, stReinstate } from '../api/index.js'
 
 // ============= 参数 / 原始数据 / 加载态 =============
 const params = reactive({ months_back: 10, before_days: 30, after_days: 30 })
-const reinstateParams = reactive({ months_back: 6 })
+const reinstateParams = reactive({ months_back: 24 })
 
 const rows1Raw = ref([]) // 表1 原始数据
 const rows2Raw = ref([]) // 表2 原始数据
@@ -97,12 +97,12 @@ const COLS1 = [
   { prop: '收盘价', label: '收盘价', min: 100, numeric: true },
 ]
 
-// 表2：ST股摘帽时间（对应 stReinstate — ST 开始/转正时间 + 最新指标）
+// 表2：ST股摘帽时间（对应 stReinstate — 当前 ST 股的起始日 + 预计可申请摘帽日）
 const COLS2 = [
   { prop: '股票名称', label: '股票名称', min: 110 },
   { prop: '代码', label: '代码', min: 120 },
   { prop: 'ST开始日期', label: 'ST 起始日', min: 120 },
-  { prop: 'ST转正日期', label: 'ST 转正日（摘帽）', min: 150 },
+  { prop: '可申请摘帽日', label: '可申请摘帽日', min: 150 },
   { prop: '股价', label: '最新价', min: 100, numeric: true },
   { prop: '净资产', label: '每股净资产', min: 110, numeric: true },
   { prop: '市盈率', label: 'PE', min: 90, numeric: true },
@@ -165,8 +165,8 @@ function onSortChange2({ prop, order }) {
   <div>
     <h2 class="page-title">ST 摘帽 / ST 恢复上市</h2>
     <p class="page-desc">
-      扫描 baostock 全市场 A 股 isST 转折点。
-      表 1 计算摘帽前/后 N 天涨跌幅；表 2 汇总 ST 起始日与转正日（摘帽时间）以及最新指标。
+      表 1 通过名称比对识别已摘帽 ST 股，计算摘帽前/后 N 天涨跌幅；
+      表 2 列出当前 ST 股的起始日及预计可申请摘帽日（起始日 + 1 个日历年，遇节假日顺延至下一交易日）。
     </p>
 
     <!-- ========== 表 1：ST股摘帽前后表现 ========== -->
@@ -229,11 +229,11 @@ function onSortChange2({ prop, order }) {
 
       <el-form :inline="true" :model="reinstateParams">
         <el-form-item label="最近月数"><el-input-number v-model="reinstateParams.months_back" :min="1" :max="120" /></el-form-item>
-        <el-form-item><el-button type="primary" :loading="loading2" @click="runReinstate">扫描 ST 转正</el-button></el-form-item>
+        <el-form-item><el-button type="primary" :loading="loading2" @click="runReinstate">扫描可摘帽日</el-button></el-form-item>
       </el-form>
 
       <el-table :data="rows2Page" stripe border height="520"
-        :default-sort="{ prop: 'ST转正日期', order: 'descending' }"
+        :default-sort="{ prop: '可申请摘帽日', order: 'descending' }"
         @sort-change="onSortChange2">
         <el-table-column
           v-for="c in COLS2"
@@ -244,7 +244,7 @@ function onSortChange2({ prop, order }) {
           sortable="custom"
           show-overflow-tooltip
           align="center" />
-        <template #empty><el-empty description="点击「扫描 ST 转正」加载数据" /></template>
+        <template #empty><el-empty description="点击「扫描可摘帽日」加载数据" /></template>
       </el-table>
 
       <div class="pager-row">

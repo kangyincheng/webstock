@@ -83,8 +83,8 @@ class MarketServices:
         )
         return _df_to_records(df)
 
-    # ------------- ST 恢复上市 -------------
-    def scan_st_reinstate(self, months_back: int = 6,
+    # ------------- ST 恢复上市（预计可申请摘帽日）-------------
+    def scan_st_reinstate(self, months_back: int = 24,
                           progress_cb: Optional[Callable[[str], None]] = None
                           ) -> List[Dict[str, Any]]:
         az = STReinstateAnalyzer(data_dir=self.data_dir)

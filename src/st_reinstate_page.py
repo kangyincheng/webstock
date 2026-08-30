@@ -11,9 +11,9 @@
   ├──────────────────────────────────────────────┤
   │ 结果表格（支持列头点击排序）:                  │
   │   股票名称 / 代码 / ST开始日期 /              │
-  │   ST转正日期 / 股价 / 净资产 /                │
+  │   可申请摘帽日 / 股价 / 净资产 /                │
   │   市盈率 / 市净率 / 量比 / 换手              │
-  │   （ST转正日期列默认降序，可升/降切换）       │
+  │   （可申请摘帽日列默认降序，可升/降切换）       │
   └──────────────────────────────────────────────┘
 """
 import os
@@ -34,7 +34,7 @@ TREE_COLUMNS = [
     ("name",       "股票名称",   100, tk.CENTER, False),
     ("code",       "代码",       100, tk.CENTER, False),
     ("st_start",   "ST开始日期", 110, tk.CENTER, False),
-    ("reinstate",  "ST转正日期", 120, tk.CENTER, False),  # 默认降序可切换
+    ("reinstate",  "可申请摘帽日", 120, tk.CENTER, False),  # 默认降序可切换
     ("price",      "股价",        80, tk.E,      True),
     ("bps",        "净资产",      90, tk.E,      True),
     ("pe",         "市盈率",      80, tk.E,      True),
@@ -48,7 +48,7 @@ COL_TO_DF = {
     "name":      "股票名称",
     "code":      "代码",
     "st_start":  "ST开始日期",
-    "reinstate": "ST转正日期",
+    "reinstate": "可申请摘帽日",
     "price":     "股价",
     "bps":       "净资产",
     "pe":        "市盈率",
@@ -84,7 +84,7 @@ class STReinstatePage:
 
         # 排序状态
         self._sort_state = {}
-        self._last_sort_col = "reinstate"  # 默认按 ST转正日期
+        self._last_sort_col = "reinstate"  # 默认按 可申请摘帽日
         self._last_sort_order = "desc"    # 默认降序
 
         self._build_ui()
@@ -92,14 +92,14 @@ class STReinstatePage:
     # ---------------- 布局 ----------------
     def _build_ui(self):
         title = tk.Label(
-            self.parent, text="ST 股票转正分析",
+            self.parent, text="ST 股票摘帽时间分析",
             font=(FONT, 14, "bold"),
             bg="#F5F6F7", fg="#1F2329", anchor="w")
         title.pack(fill=tk.X, padx=16, pady=(12, 4))
 
         subtitle = tk.Label(
             self.parent,
-            text="扫描最近 N 个月内出现 ST 状态的股票，列出 ST 开始/转正日期与最新行情、估值、量比、换手指标",
+            text="扫描当前处于 ST 状态的股票，列出 ST 起始日与预计可申请摘帽日（起始日 + 1 个日历年，遇节假日顺延）",
             font=(FONT, 10),
             bg="#F5F6F7", fg="#86909C", anchor="w")
         subtitle.pack(fill=tk.X, padx=16, pady=(0, 8))
@@ -205,7 +205,7 @@ class STReinstatePage:
         table_card = tk.Frame(self.parent, bg="#FFFFFF",
                               highlightbackground="#E5E6EB", highlightthickness=1)
         table_card.pack(fill=tk.BOTH, expand=True, padx=16, pady=(4, 16))
-        tk.Label(table_card, text="ST 股票转正列表（点击列头可排序，ST转正日期可升/降序）",
+        tk.Label(table_card, text="ST 股票可摘帽日列表（点击列头可排序，可申请摘帽日可升/降序）",
                  bg="#FFFFFF",
                  font=(FONT, 10, "bold"),
                  fg="#4E5969").pack(anchor="w", padx=12, pady=(8, 2))
@@ -292,7 +292,7 @@ class STReinstatePage:
                 progress_callback=self._log)
             self._result_df = df if (df is not None and not df.empty) else None
             self._sort_state.clear()
-            # 重置为默认排序：ST转正日期降序
+            # 重置为默认排序：可申请摘帽日降序
             self._last_sort_col = "reinstate"
             self._last_sort_order = "desc"
             self.parent.after(0, lambda: self._apply_sort_and_render())
@@ -315,7 +315,7 @@ class STReinstatePage:
             self._last_sort_order = "desc" if self._last_sort_order == "asc" else "asc"
         else:
             self._last_sort_col = col_key
-            # 数值列默认降序；ST转正日期默认降序；其余文本列默认升序
+            # 数值列默认降序；可申请摘帽日默认降序；其余文本列默认升序
             self._last_sort_order = "desc" if (col_key in NUMERIC_COLS or col_key == "reinstate") else "asc"
         self._sort_state[col_key] = self._last_sort_order
         self._apply_sort_and_render()
@@ -422,7 +422,7 @@ class STReinstatePage:
         total = len(df)
         shown = 0
         for _, r in df.iterrows():
-            reinstate = r.get("ST转正日期")
+            reinstate = r.get("可申请摘帽日")
             # None 或 NaN 视为仍 ST
             if reinstate is None or (isinstance(reinstate, float) and pd.isna(reinstate)) or reinstate == "":
                 tag = "still_st"
@@ -432,7 +432,7 @@ class STReinstatePage:
                 self._fmt(r.get("股票名称", "")),
                 self._fmt(r.get("代码", "")),
                 self._fmt(r.get("ST开始日期", "")),
-                self._fmt(r.get("ST转正日期", "")),
+                self._fmt(r.get("可申请摘帽日", "")),
                 self._fmt(r.get("股价")),
                 self._fmt(r.get("净资产")),
                 self._fmt(r.get("市盈率")),

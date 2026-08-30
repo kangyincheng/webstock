@@ -67,7 +67,7 @@ class STScanParams(BaseModel):
 
 
 class GenericScanParams(BaseModel):
-    months_back: int = 6
+    months_back: int = 24
 
 
 # =============== 板块热度 / 热门股票 ===============

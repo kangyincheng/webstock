@@ -1,19 +1,19 @@
-"""ST 股票转正分析。
+"""ST 股票摘帽时间分析（预计可申请摘帽日）。
 
-数据源：baostock（与 STAnalyzer 相同）。
+数据源：baostock。
 
-核心逻辑：
-  1. 拉取指定日期范围内所有 A 股的日 K 线（含 isST 字段）
-  2. 扫描每只股票的 isST 时间序列
-     - ST 开始日期：isST 由 0 -> 1 的首个交易日
-     - ST 转正日期：isST 由 1 -> 0 的首个交易日（仍处于 ST 状态则为 None）
-  3. 在扫描范围内出现过 ST 状态的股票都进入结果
-  4. 同时取最新交易日的：收盘价、市盈率（peTTM）、市净率（pbMRQ）、换手率（turn）
-  5. 计算：量比（当日成交量 / 过去 N 日平均成交量）、每股净资产（收盘价 / pbMRQ）
+核心策略：
+  1. 拉取最新交易日全市场 A 股（含名称），筛选出名称含 ST 的股票
+  2. 对每只 ST 股，用日 K 的 isST 字段找出当前 ST 段的起始日（最近一次 0->1；
+     若窗口内 isST 全程为 1，说明 ST 早于窗口，取窗口最早日期作近似）
+  3. 可申请摘帽日 = ST 起始日 + 1 个日历年
+  4. 若可申请摘帽日为节假日，向后顺延至下一个交易日
+  5. 同时取最新交易日的收盘价、市盈率（peTTM）、市净率（pbMRQ）、换手率（turn），
+     并计算量比（当日成交量 / 过去 N 日平均成交量）、每股净资产（收盘价 / pbMRQ）
 
 字段定义：
   isST = 1 表示当日处于 ST/*ST 状态；isST = 0 表示正常
-  ST 转正日期 = ST 起始之后 isST 第一次回到 0 的交易日
+  名称含 ST = 股票名称中包含 "ST"（ST / *ST / S*ST 等）
 """
 import os
 import time
@@ -42,15 +42,33 @@ def _months_ago(months):
     return target.strftime("%Y-%m-%d")
 
 
+def _name_has_st(name):
+    """判断股票名称是否包含 ST 标识（ST / *ST / S*ST 等）。
+
+    A 股名称均为中文，其中出现 "ST" 必然代表 ST 状态。
+    """
+    if not name:
+        return False
+    return "ST" in str(name).upper()
+
+
+def _add_one_year(date_str):
+    """日期 + 1 个日历年（2 月 29 日 -> 次年 2 月 28 日）。返回 YYYY-MM-DD 字符串。"""
+    d = datetime.strptime(date_str, "%Y-%m-%d")
+    try:
+        nd = d.replace(year=d.year + 1)
+    except ValueError:
+        nd = d.replace(year=d.year + 1, day=28)
+    return nd.strftime("%Y-%m-%d")
+
+
 class STReinstateAnalyzer:
-    """ST 转正分析器。
+    """ST 摘帽时间分析器（预计可申请摘帽日）。
 
     使用方式：
         analyzer = STReinstateAnalyzer(data_dir="data")
         df = analyzer.scan_and_analyze(
-            months_back=12,
-            volume_ratio_days=5,
-            progress_callback=print)
+            months_back=12, volume_ratio_days=5, progress_callback=print)
     """
 
     # 日 K 线查询字段：日期、代码、收盘价、成交量、换手率、isST、peTTM、pbMRQ
@@ -74,18 +92,42 @@ class STReinstateAnalyzer:
         except Exception:
             pass
 
-    # ---------------- 股票列表 ----------------
-    def _get_all_stock_codes(self, bs, date):
-        """获取指定日期全市场 A 股代码列表（排除指数）。"""
-        rs = bs.query_all_stock(day=date)
-        if rs.error_code != "0":
-            raise RuntimeError(f"query_all_stock 失败: {rs.error_msg}")
-        df = rs.get_data()
-        if df is None or df.empty:
-            return []
-        # 过滤 A 股主板/创业板/科创板，排除指数、基金
-        codes = df[df["code"].str.match(r"^(sh\.6|sh\.688|sz\.0|sz\.3)")]["code"]
-        return codes.tolist()
+    # ---------------- 全市场 A 股 + 名称（按日期快照）----------------
+    def _get_all_stock_with_names(self, bs, target_date, max_lookback=15):
+        """获取指定日期（或最近交易日）全市场 A 股代码与名称。
+
+        baostock query_all_stock(day=X) 返回 X 当日上市股票及其当时的名称，
+        非交易日可能为空，因此向前回溯最多 max_lookback 天寻找有效交易日。
+
+        返回 (name_map, actual_date)：
+          name_map = {code: name}（仅 A 股主板/创业板/科创板，排除指数、基金）
+          actual_date = 实际命中的交易日字符串（YYYY-MM-DD）
+        """
+        base = datetime.strptime(target_date, "%Y-%m-%d")
+        for back in range(max_lookback):
+            day = (base - timedelta(days=back)).strftime("%Y-%m-%d")
+            rs = bs.query_all_stock(day=day)
+            if rs.error_code != "0":
+                continue
+            try:
+                df = rs.get_data()
+            except Exception:
+                df = None
+            if df is None or df.empty or "code" not in df.columns:
+                continue
+            mask = df["code"].astype(str).str.match(r"^(sh\.6|sh\.688|sz\.0|sz\.3)")
+            df_a = df[mask]
+            if df_a.empty:
+                continue
+            name_col = next(
+                (c for c in df_a.columns if "name" in c.lower()), None)
+            name_map = {}
+            for _, r in df_a.iterrows():
+                code = str(r["code"])
+                name = str(r[name_col]) if (name_col and name_col in df_a.columns) else ""
+                name_map[code] = name
+            return name_map, day
+        return {}, target_date
 
     # ---------------- 拉取日 K ----------------
     def _fetch_kline(self, bs, code, start_date, end_date):
@@ -116,81 +158,70 @@ class STReinstateAnalyzer:
                 df[col] = pd.to_numeric(df[col], errors="coerce")
         return df
 
-    # ---------------- 股票名称 ----------------
-    def _get_stock_names(self, bs):
-        """通过 query_stock_basic 拉股票名称映射（按列名取，避免行序随机）。
+    # ---------------- 交易日历 ----------------
+    def _load_trading_calendar(self, bs, start_date, end_date):
+        """加载 [start_date, end_date] 范围内的交易日集合。
 
-        与 STAnalyzer._get_stock_names 实现一致，规避「row[0]/row[1] 赌顺序
-        导致 name_map 全空 / 第二个表单空白」的 bug。
+        使用 baostock query_trade_dates 获取交易日历，返回 {date_str, ...}。
+        失败时返回空集合（后续回退为跳过周末）。
         """
-        rs = bs.query_stock_basic()
-        name_map = {}
+        rs = bs.query_trade_dates(start_date=start_date, end_date=end_date)
         if rs.error_code != "0":
-            return name_map
-        df = None
+            return set()
         try:
             df = rs.get_data()
         except Exception:
-            pass
-        if df is not None and not df.empty:
-            code_col = next((c for c in df.columns if c.lower() == "code"), None)
-            name_col = next(
-                (c for c in df.columns if "name" in c.lower()), None)
-            if code_col is not None and name_col is not None:
-                for _, r in df[[code_col, name_col]].iterrows():
-                    c, n = r.iloc[0], r.iloc[1]
-                    if c and n:
-                        name_map[str(c)] = str(n)
-            else:
-                fields = list(getattr(rs, "fields", []) or [])
-                ci = next((i for i, f in enumerate(fields) if f.lower() == "code"), 0)
-                ni = next((i for i, f in enumerate(fields) if "name" in f.lower()), 1)
-                for _, r in df.iterrows():
-                    if len(r) > max(ci, ni):
-                        c, n = r.iloc[ci], r.iloc[ni]
-                        if c and n:
-                            name_map[str(c)] = str(n)
-            return name_map
-        fields = list(getattr(rs, "fields", []) or [])
-        ci = next((i for i, f in enumerate(fields) if f.lower() == "code"), 0)
-        ni = next((i for i, f in enumerate(fields) if "name" in f.lower()), 1)
-        while rs.error_code == "0" and rs.next():
-            row = rs.get_row_data()
-            if len(row) > max(ci, ni):
-                c, n = row[ci], row[ni]
-                if c and n:
-                    name_map[str(c)] = str(n)
-        return name_map
+            df = None
+        if df is None or df.empty:
+            return set()
+        date_col = next(
+            (c for c in df.columns if "date" in c.lower() or "calendar" in c.lower()),
+            None)
+        trade_col = next(
+            (c for c in df.columns if "trading" in c.lower()), None)
+        if date_col is None or trade_col is None:
+            return set()
+        trading = df[df[trade_col].astype(str).isin(["1", "1.0"])]
+        return set(trading[date_col].astype(str).tolist())
 
-    # ---------------- 找出 ST 起始日 / 转正日 ----------------
     @staticmethod
-    def _find_st_transitions(df):
-        """在单只股票的日 K 中找出 ST 起始日与转正日。
+    def _next_trading_day(trading_days_set, target_date):
+        """从预加载交易日集合中找 >= target_date 的最近交易日。
 
-        返回 (st_start_date, reinstate_date)：
-          - st_start_date: isST 第一次为 1 的日期（进入 ST 的起始日）
-          - reinstate_date: ST 起始之后 isST 第一次回到 0 的日期；
-                            若当前仍处于 ST 状态则为 None
-          若该股票扫描范围内从未进入 ST，返回 None。
+        若 target_date 超出交易日历范围（未来日期），回退为跳过周末。
         """
-        if df.empty or "isST" not in df.columns:
+        on_or_after = sorted(d for d in trading_days_set if d >= target_date)
+        if on_or_after:
+            return on_or_after[0]
+        # 回退：仅跳过周末（未来日期超出交易日历范围时）
+        d = datetime.strptime(target_date, "%Y-%m-%d")
+        while d.weekday() >= 5:  # 周六=5, 周日=6
+            d += timedelta(days=1)
+        return d.strftime("%Y-%m-%d")
+
+    # ---------------- 找出当前 ST 段起始日 ----------------
+    @staticmethod
+    def _find_st_start(df):
+        """找出当前 ST 段的起始日（最近一次 isST 0->1）。
+
+        若窗口内 isST 全程为 1（ST 早于窗口开始），返回窗口最早日期作为近似。
+        返回日期字符串或 None（窗口内未 ST，与名称不符时跳过）。
+        """
+        if df is None or df.empty or "isST" not in df.columns:
             return None
         df = df.sort_values("date").reset_index(drop=True)
         st_mask = df["isST"] == 1
         if not st_mask.any():
-            return None  # 从来没 ST 过
-
-        st_start = df.loc[st_mask, "date"].iloc[0]
-        st_first_idx = st_mask.idxmax()  # isST 第一次为 1 的位置
-
-        # 在 ST 起始之后找 isST 回到 0 的首个交易日
-        reinstate_idx = None
-        for i in range(st_first_idx + 1, len(df)):
-            if df.loc[i, "isST"] == 0:
-                reinstate_idx = i
-                break
-        reinstate_date = df.loc[reinstate_idx, "date"] if reinstate_idx is not None else None
-        return st_start, reinstate_date
+            return None  # 窗口内未 ST（与名称含 ST 不符，跳过）
+        # 最近一次 0->1 转折
+        st_start_idx = None
+        for i in range(1, len(df)):
+            if df.loc[i - 1, "isST"] == 0 and df.loc[i, "isST"] == 1:
+                st_start_idx = i  # 持续覆盖以取最近一次
+        if st_start_idx is not None:
+            return df.loc[st_start_idx, "date"]
+        # 全程 ST（含首行）：起始早于窗口，取最早日期近似
+        return df.loc[0, "date"]
 
     # ---------------- 计算最新行情 + 量比 + 净资产 ----------------
     @staticmethod
@@ -213,7 +244,6 @@ class STReinstateAnalyzer:
         # 量比 = 当日成交量 / 过去 N 个交易日平均成交量
         volume_ratio = None
         if last_vol is not None and not pd.isna(last_vol):
-            # 取当日之前 N 个交易日
             prev = df.iloc[:-1].tail(volume_ratio_days)
             if len(prev) >= 1:
                 prev_vols = pd.to_numeric(prev["volume"], errors="coerce").dropna()
@@ -221,9 +251,6 @@ class STReinstateAnalyzer:
                     volume_ratio = float(last_vol) / float(prev_vols.mean())
 
         # 每股净资产（BPS）= 收盘价 / 市净率
-        # 原理：pbMRQ = 总市值 / 净资产 = (股价 × 总股本) / 净资产
-        #        => 净资产 = 股价 × 总股本 / pbMRQ
-        #        => 每股净资产 = 净资产 / 总股本 = 股价 / pbMRQ
         bps = None
         try:
             if close is not None and pb is not None and not pd.isna(close) and not pd.isna(pb) and pb > 0:
@@ -243,21 +270,25 @@ class STReinstateAnalyzer:
     # ---------------- 主入口：扫描并分析 ----------------
     def scan_and_analyze(self, months_back=12, volume_ratio_days=5,
                          progress_callback=None):
-        """扫描最近 N 个月内出现 ST 状态的股票，返回结果 DataFrame。
+        """扫描当前处于 ST 状态的股票，计算预计可申请摘帽日。
+
+        策略：
+          1. 拉取最新交易日全市场 A 股（含名称），筛选名称含 ST 的股票
+          2. 对每只 ST 股，用日 K 的 isST 字段找出当前 ST 段起始日
+          3. 可申请摘帽日 = ST 起始日 + 1 个日历年
+          4. 若可申请摘帽日为节假日，向后顺延至下一个交易日
 
         Args:
-            months_back: 向前查看的月数（默认 12）
+            months_back: 日 K 回溯月数（用于寻找 ST 起始日，默认 12）
             volume_ratio_days: 量比的计算窗口（默认 5 个交易日）
             progress_callback: 回调函数 (msg) -> None
 
         Returns:
-            DataFrame，列：股票名称, 代码, ST开始日期, ST转正日期,
+            DataFrame，列：股票名称, 代码, ST开始日期, 可申请摘帽日,
                           股价, 净资产, 市盈率, 市净率, 量比, 换手
         """
-        # 兼容旧调用名：backend 使用 az.scan(...) 而非 az.scan_and_analyze(...)
-        # scan() 别名片段见下方
-        end_date = _today_str()
-        start_date = _months_ago(months_back)
+        today = _today_str()
+        lookback_start = _months_ago(months_back)
 
         def log(msg):
             if progress_callback:
@@ -266,28 +297,41 @@ class STReinstateAnalyzer:
         log(f"登录 baostock ...")
         bs = self._login()
         try:
-            # 1. 全市场股票列表
-            log(f"获取 {end_date} 全市场股票代码 ...")
-            codes = self._get_all_stock_codes(bs, end_date)
-            log(f"共 {len(codes)} 只股票，开始扫描 ...")
+            # 1. 最新交易日全市场 A 股（含名称）
+            log(f"获取最新交易日全市场股票名称（目标 {today}）...")
+            latest_map, end_date = self._get_all_stock_with_names(bs, today)
+            log(f"最新交易日 {end_date}：共 {len(latest_map)} 只 A 股")
 
-            # 2. 股票名称
-            log("拉取股票名称表 ...")
-            name_map = self._get_stock_names(bs)
+            # 2. 筛选 ST 股（名称含 ST）
+            st_stocks = [(code, name)
+                         for code, name in latest_map.items()
+                         if _name_has_st(name)]
+            log(f"名称含 ST 的股票：{len(st_stocks)} 只")
 
-            # 3. 逐只扫描
+            # 3. 预加载交易日历（覆盖所有可能的可申请摘帽日）
+            #    可申请摘帽日 = ST起始 + 1年，范围约 [lookback_start+1年, today+1年]
+            cal_start = lookback_start
+            cal_end = (datetime.now() + timedelta(days=365 + 30)).strftime("%Y-%m-%d")
+            log("加载交易日历 ...")
+            trading_days = self._load_trading_calendar(bs, cal_start, cal_end)
+            log(f"交易日历：{len(trading_days)} 个交易日")
+
+            # 4. 逐只分析
             results = []
-            total = len(codes)
+            total = len(st_stocks)
             success = 0
-            for i, code in enumerate(codes, 1):
+            for i, (code, name) in enumerate(st_stocks, 1):
                 try:
-                    df = self._fetch_kline(bs, code, start_date, end_date)
-                    if df.empty:
+                    df = self._fetch_kline(bs, code, lookback_start, end_date)
+                    if df is None or df.empty:
                         continue
-                    info = self._find_st_transitions(df)
-                    if not info:
-                        continue  # 该股在扫描范围内从未进入 ST
-                    st_start, reinstate_date = info
+                    st_start = self._find_st_start(df)
+                    if st_start is None:
+                        continue  # 窗口内未 ST（与名称不符），跳过
+                    # 可申请摘帽日 = ST起始 + 1 个日历年
+                    eligibility = _add_one_year(st_start)
+                    # 若为节假日则顺延至下一个交易日
+                    eligibility = self._next_trading_day(trading_days, eligibility)
 
                     metrics = self._compute_latest_metrics(df, volume_ratio_days)
                     close = metrics.get("close")
@@ -298,10 +342,10 @@ class STReinstateAnalyzer:
                     bps = metrics.get("bps")
 
                     results.append({
-                        "股票名称": name_map.get(code, ""),
+                        "股票名称": name,
                         "代码": code,
                         "ST开始日期": st_start,
-                        "ST转正日期": reinstate_date if reinstate_date is not None else None,
+                        "可申请摘帽日": eligibility,
                         "股价": round(close, 3) if close is not None else None,
                         "净资产": round(bps, 3) if bps is not None else None,
                         "市盈率": round(pe, 2) if pe is not None else None,
@@ -313,22 +357,22 @@ class STReinstateAnalyzer:
                 except Exception:
                     # 单只失败不影响整体
                     pass
-                if i % 50 == 0 or i == total:
-                    log(f"进度 {i}/{total}  已找到 {success} 只 ST 股")
-                # baostock 限速：每只间隔 0.1s
+                if i % 20 == 0 or i == total:
+                    log(f"进度 {i}/{total}  已成功 {success} 只")
+                # baostock 限速
                 time.sleep(0.01)
         finally:
             self._logout(bs)
 
-        log(f"扫描完成，共找到 {len(results)} 只 ST 股")
-        cols = ["股票名称", "代码", "ST开始日期", "ST转正日期",
+        log(f"扫描完成，共 {len(results)} 只 ST 股")
+        cols = ["股票名称", "代码", "ST开始日期", "可申请摘帽日",
                 "股价", "净资产", "市盈率", "市净率", "量比", "换手"]
         if not results:
             return pd.DataFrame(columns=cols)
         df_out = pd.DataFrame(results, columns=cols)
-        # 默认按 ST 转正日期降序（已转正的靠前，仍 ST 的 None 放最后）
-        df_out = df_out.sort_values("ST转正日期", ascending=False,
-                                   na_position="last").reset_index(drop=True)
+        # 默认按可申请摘帽日降序
+        df_out = df_out.sort_values("可申请摘帽日", ascending=False,
+                                    na_position="last").reset_index(drop=True)
         return df_out
 
     # 兼容别称：backend 通过 az.scan(...) 调用

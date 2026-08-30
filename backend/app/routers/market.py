@@ -112,7 +112,7 @@ async def st_reinstate_scan(params: GenericScanParams,
     except (Exception, asyncio.TimeoutError) as exc:
         demo = [
             {"股票名称": "演示-退市国发", "代码": "sh.600001",
-             "ST开始日期": "2023-12-01", "ST转正日期": None,
+             "ST开始日期": "2023-12-01", "可申请摘帽日": "2024-12-02",
              "股价": 1.23, "净资产": 2.05, "市盈率": -18.5,
              "市净率": 0.6, "量比": 1.25, "换手": 0.9},
         ]
