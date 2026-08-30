@@ -334,6 +334,13 @@ const CaretBottom = defineComponent({
     -webkit-overflow-scrolling: touch;
     overscroll-behavior-y: contain;
   }
+  /* 所有按钮：移动端确保触控目标 ≥36px（覆盖 el-button--small 的 24px 默认值） */
+  .el-button,
+  .el-button--small {
+    min-height: 36px;
+    font-size: 14px;
+    padding: 6px 14px;
+  }
 
   .app-aside {
     position: fixed;
@@ -637,6 +644,14 @@ const CaretBottom = defineComponent({
     min-height: 40px;
     font-size: 14px;
     font-weight: 600;
+  }
+  /* 卡片头部非 primary 按钮（刷新/导出等）：移动端确保触控目标够大 */
+  .el-card__header .el-button:not(.el-button--primary),
+  .el-card > :first-child .el-button:not(.el-button--primary) {
+    min-height: 36px;
+    min-width: 72px;
+    font-size: 14px;
+    padding: 6px 14px;
   }
 
   /* Favorites / History 顶部 el-space 操作按钮：每行最多 2 个，全宽高可见。
