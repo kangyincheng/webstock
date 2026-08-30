@@ -205,24 +205,12 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-/* 移动端 ≤768px：散点图高度自适应、表单换行 */
+/* 移动端 ≤768px：图表高度紧凑化，避免在手机上占满整屏
+   其余表单 / 列 / 对话框适配统一走 App.vue 的全局移动端媒体查询 */
 @media (max-width: 768px) {
-  :deep(.el-form) { display: block; }
-  :deep(.el-form-item) { display: flex; margin-bottom: 10px; flex-wrap: wrap; }
-  :deep(.el-form-item__label) {
-    display: block;
-    width: auto !important;
-    margin-bottom: 4px;
-    font-size: 12px;
-    color: #4e5969;
-    font-weight: 600;
+  /* 散点图容器：缩小高度，保持 16:9 观感 */
+  div[ref="chartRef"] {
+    height: 280px !important;
   }
-  :deep(.el-form-item__content) { margin-left: 0 !important; }
-  :deep(.el-form-item .el-input),
-  :deep(.el-form-item .el-select),
-  :deep(.el-form-item .el-input-number) {
-    width: 100%;
-  }
-  .chart-container { height: 320px !important; }
 }
 </style>

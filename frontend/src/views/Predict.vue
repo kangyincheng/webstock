@@ -369,7 +369,7 @@ onBeforeUnmount(() => { ws_close(); ch?.dispose(); cl?.dispose() })
     justify-content: center;
     position: fixed;
     right: 16px;
-    bottom: 18px;
+    bottom: calc(18px + env(safe-area-inset-bottom, 0px));
     z-index: 1000;
     padding: 12px 20px;
     min-width: 128px;

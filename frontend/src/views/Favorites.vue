@@ -138,7 +138,7 @@ onMounted(reload)
         <el-form-item label="备注"><el-input v-model="form.note" type="textarea" :rows="2" /></el-form-item>
         <el-form-item label="事件列表">
           <div>
-            <div v-for="(e,i) in form.events" :key="i" style="display:flex; gap:8px; margin-bottom:6px">
+            <div v-for="(e,i) in form.events" :key="i" class="fav-event-row" style="display:flex; gap:8px; margin-bottom:6px">
               <el-input v-model="e.title" placeholder="事件标题，如：业绩预告披露" style="flex:1" />
               <el-input v-model="e.due_date" placeholder="YYYY-MM-DD" style="width:180px" />
               <el-button size="small" type="danger" plain @click="delEvent(i)">移除</el-button>
@@ -159,4 +159,23 @@ onMounted(reload)
 :deep(.row-due td) { background: #fff1f0 !important; color: #cf1322; font-weight: 600; }
 :deep(.gain-up) { color: #F5222D !important; font-weight: 600; }
 :deep(.gain-down) { color: #52C41A !important; font-weight: 600; }
+
+/* 移动端：自选股 Dialog 中"事件行"自动换行，避免 title/date/删除 三项溢出窄屏 */
+@media (max-width: 768px) {
+  :deep(.fav-event-row) {
+    flex-wrap: wrap !important;
+  }
+  :deep(.fav-event-row > .el-input) {
+    flex: 1 1 100% !important;
+    width: 100% !important;
+  }
+  :deep(.fav-event-row > [style*="width:180px"]) {
+    flex: 1 1 100% !important;
+    width: 100% !important;
+  }
+  :deep(.fav-event-row > .el-button) {
+    flex: 1 1 auto;
+    min-width: 45%;
+  }
+}
 </style>
