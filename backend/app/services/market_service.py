@@ -46,6 +46,11 @@ BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "
 SRC_DIR = os.path.join(BASE_DIR, "src")
 if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
+# ST 扫描用 spawn 多进程并行，子进程是全新解释器，不继承父进程运行期的
+# sys.path 修改；把 SRC_DIR 写入 PYTHONPATH，保证子进程能导入 src 下的分析器模块
+_pp = os.environ.get("PYTHONPATH", "")
+if SRC_DIR not in _pp.split(os.pathsep):
+    os.environ["PYTHONPATH"] = SRC_DIR + (os.pathsep + _pp if _pp else "")
 
 from st_analyzer import STAnalyzer                       # noqa: E402
 from st_reinstate_analyzer import STReinstateAnalyzer    # noqa: E402

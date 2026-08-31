@@ -44,7 +44,8 @@ async def st_scan(params: STScanParams,
                   request: Request,
                   user: Optional[Dict[str, Any]] = Depends(get_current_user_or_none)):
     cache = CacheLayer.instance()
-    key = _cache_key("st-scan", months_back=params.months_back,
+    # v2：修复摘帽识别算法（isST 转折检测）后升级命名空间，绕过旧算法写入的空缓存
+    key = _cache_key("st-scan-v2", months_back=params.months_back,
                      before_days=params.before_days, after_days=params.after_days)
     cached = cache.get_json(key)
     if cached is not None:
@@ -63,9 +64,9 @@ async def st_scan(params: STScanParams,
 
     is_demo = False
     try:
-        # 长任务：给足 120s，baostock 一次扫描可能过慢（全市场 3000+ 只）
+        # 长任务：全市场 5000+ 只并行扫描约 3~5 分钟，给足 600s
         records = await asyncio.wait_for(
-            loop.run_in_executor(None, _run), timeout=120.0)
+            loop.run_in_executor(None, _run), timeout=600.0)
     except (Exception, asyncio.TimeoutError) as exc:
         # baostock 不可达 / 超时时返回演示数据，按钮不崩
         demo = [

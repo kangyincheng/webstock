@@ -165,7 +165,7 @@ function onSortChange2({ prop, order }) {
   <div>
     <h2 class="page-title">ST 摘帽 / ST 恢复上市</h2>
     <p class="page-desc">
-      表 1 通过名称比对识别已摘帽 ST 股，计算摘帽前/后 N 天涨跌幅；
+      表 1 基于日 K 线 isST 状态转折（1→0）识别已摘帽 ST 股，计算摘帽前/后 N 个交易日涨跌幅；
       表 2 列出当前 ST 股的起始日及预计可申请摘帽日（起始日 + 1 个日历年，遇节假日顺延至下一交易日）。
     </p>
 
