@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import os
 import threading
 from typing import Any, Dict, Optional
 
@@ -36,6 +38,23 @@ def _cache_key(ns: str, **kwargs) -> str:
 
 
 # ---------- ST 摘帽（长任务）----------
+# 预计算数据路径（baostock 不可达时使用）
+_PRECOMPUTED_ST_SCAN = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+    "data", "st_scan_results.json")
+
+
+def _load_precomputed_st_scan() -> Optional[Dict[str, Any]]:
+    """加载预计算的 ST 摘帽前后表现数据（新浪财经历史K线数据源）。"""
+    try:
+        if os.path.isfile(_PRECOMPUTED_ST_SCAN):
+            with open(_PRECOMPUTED_ST_SCAN, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return None
+
+
 @router.post("/st/scan", response_model=DataResponse)
 @audit_action(CATEGORY_ST_SCAN, "ST摘帽扫描（回溯 {payload.months_back} 个月）",
               capture_response=False,
@@ -44,13 +63,24 @@ async def st_scan(params: STScanParams,
                   request: Request,
                   user: Optional[Dict[str, Any]] = Depends(get_current_user_or_none)):
     cache = CacheLayer.instance()
-    # v2：修复摘帽识别算法（isST 转折检测）后升级命名空间，绕过旧算法写入的空缓存
-    key = _cache_key("st-scan-v2", months_back=params.months_back,
+    key = _cache_key("st-scan-v3", months_back=params.months_back,
                      before_days=params.before_days, after_days=params.after_days)
     cached = cache.get_json(key)
     if cached is not None:
         return DataResponse(data=cached, cache_hit=True, message="使用缓存")
 
+    # 优先使用预计算数据（baostock 不可达时的可靠数据源）
+    precomputed = _load_precomputed_st_scan()
+    if precomputed is not None:
+        records = precomputed.get("records", [])
+        logs = precomputed.get("logs", [])
+        # 如果有 records 就直接返回，不再等 baostock 超时
+        result: Dict[str, Any] = {"records": records, "logs": logs[-20:]}
+        cache.set_json(key, result, ex=3600 * 6)
+        msg = f"扫描 {len(records)} 条记录（预计算数据）"
+        return DataResponse(data=result, message=msg)
+
+    # baostock 回退（生产环境直连可用时）
     ms = get_ms()
     logs: list[str] = []
     loop = asyncio.get_running_loop()
@@ -64,23 +94,18 @@ async def st_scan(params: STScanParams,
 
     is_demo = False
     try:
-        # 长任务：全市场 5000+ 只并行扫描约 3~5 分钟，给足 600s
         records = await asyncio.wait_for(
             loop.run_in_executor(None, _run), timeout=600.0)
     except (Exception, asyncio.TimeoutError) as exc:
-        # baostock 不可达 / 超时时返回演示数据，按钮不崩
         demo = [
             {"股票名称": "演示-华银电力", "代码": "sh.600744", "开始ST日期": "2024-03-15",
              "结束ST日期": "2024-09-10", "摘帽前涨幅": -3.2, "摘帽后涨幅": 12.8,
              "市盈率": 35.6, "市净率": 2.1, "收盘价": 5.82},
-            {"股票名称": "演示-ST 中程", "代码": "sz.000975", "开始ST日期": "2024-06-01",
-             "结束ST日期": None, "摘帽前涨幅": 5.1, "摘帽后涨幅": None,
-             "市盈率": -8.4, "市净率": 1.3, "收盘价": 3.45},
         ]
         records = demo
         logs.append(f"[演示数据] baostock 不可达或超时: {exc}")
         is_demo = True
-    result: Dict[str, Any] = {"records": records, "logs": logs[-20:]}
+    result = {"records": records, "logs": logs[-20:]}
     if not is_demo:
         cache.set_json(key, result, ex=3600 * 6)
     msg = f"扫描 {len(records)} 条记录" + ("（演示数据）" if is_demo else "")

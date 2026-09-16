@@ -4,7 +4,7 @@ import { ElMessage } from 'element-plus'
 import { stScan, stReinstate } from '../api/index.js'
 
 // ============= 参数 / 原始数据 / 加载态 =============
-const params = reactive({ months_back: 10, before_days: 30, after_days: 30 })
+const params = reactive({ months_back: 10, before_days: 15, after_days: 15 })
 const reinstateParams = reactive({ months_back: 24 })
 
 const rows1Raw = ref([]) // 表1 原始数据
