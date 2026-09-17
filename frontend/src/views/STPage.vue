@@ -1,6 +1,7 @@
 <script setup>
-import { reactive, ref, computed, watch } from 'vue'
+import { reactive, ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
+import * as echarts from 'echarts'
 import { stScan, stReinstate } from '../api/index.js'
 
 // ============= 参数 / 原始数据 / 加载态 =============
@@ -125,6 +126,105 @@ function rowTone1({ row }) {
   return v >= 0 ? 'row-up' : 'row-down'
 }
 
+// ============= 表1 统计汇总（卡片）=============
+const stats1 = computed(() => {
+  const rows = rows1Raw.value
+  const n = rows.length
+  if (!n) return null
+  let up = 0, down = 0, flat = 0
+  let preSum = 0, preN = 0
+  let postSum = 0, postN = 0
+  const upList = [], postList = []
+  for (const r of rows) {
+    const pre = Number(r['摘帽前涨幅'])
+    const post = Number(r['摘帽后涨幅'])
+    if (isFinite(post)) {
+      postSum += post; postN++
+      postList.push(post)
+      if (post > 0) up++
+      else if (post < 0) down++
+      else flat++
+    }
+    if (isFinite(pre)) { preSum += pre; preN++ }
+  }
+  // 把摘帽后涨幅为正的个股涨幅记下来（用于图）
+  for (const r of [...rows].sort((a, b) => (Number(b['摘帽后涨幅']) || 0) - (Number(a['摘帽后涨幅']) || 0))) {
+    const p = Number(r['摘帽后涨幅'])
+    if (isFinite(p) && p > 0) upList.push({ name: r['股票名称'], v: p })
+  }
+  const median = (arr) => {
+    if (!arr.length) return null
+    const s = [...arr].sort((a, b) => a - b)
+    const m = Math.floor(s.length / 2)
+    return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2
+  }
+  return {
+    n, up, down, flat,
+    upRate: n ? (up / n * 100).toFixed(1) : '0',
+    preAvg: preN ? (preSum / preN).toFixed(2) : null,
+    postAvg: postN ? (postSum / postN).toFixed(2) : null,
+    postMedian: postN ? median(postList).toFixed(2) : null,
+    upBest: upList.length ? upList[0] : null,
+    upList: upList.slice(0, 15),
+  }
+})
+
+// ============= 表1 摘帽前后涨幅对比图（ECharts）=============
+const chartRef = ref(null)
+let chartInst = null
+let resizeHandler = null
+
+function renderChart() {
+  const el = chartRef.value
+  if (!el) return
+  if (!chartInst) chartInst = echarts.init(el)
+  const rows = [...rows1Raw.value]
+    .filter((r) => isFinite(Number(r['摘帽后涨幅'])))
+    .sort((a, b) => (Number(b['摘帽后涨幅']) || 0) - (Number(a['摘帽后涨幅']) || 0))
+    .slice(0, 15)
+  if (!rows.length) {
+    chartInst.clear()
+    return
+  }
+  const names = rows.map((r) => r['股票名称'])
+  const pre = rows.map((r) => { const v = Number(r['摘帽前涨幅']); return isFinite(v) ? v : null })
+  const post = rows.map((r) => Number(r['摘帽后涨幅']))
+  chartInst.setOption({
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'shadow' },
+      valueFormatter: (v) => (v === null || v === undefined ? '-' : v + '%'),
+    },
+    legend: { data: ['摘帽前', '摘帽后'], top: 0 },
+    grid: { left: 10, right: 20, top: 34, bottom: 6, containLabel: true },
+    xAxis: { type: 'value', axisLabel: { formatter: '{value}%' } },
+    yAxis: {
+      type: 'category',
+      data: names.map((n) => (n.length > 8 ? n.slice(0, 8) + '…' : n)),
+    },
+    series: [
+      { name: '摘帽前', type: 'bar', data: pre, barGap: '-100%', itemStyle: { color: '#C0C4CC' } },
+      { name: '摘帽后', type: 'bar', data: post, itemStyle: { color: (p) => (p.value >= 0 ? '#F5222D' : '#52C41A') } },
+      { name: '摘帽后', type: 'bar', data: post, barWidth: 4, itemStyle: { color: '#fff', opacity: 0.9 }, tooltip: { show: false } },
+    ],
+  })
+}
+function onChartResize() { if (chartInst) chartInst.resize() }
+
+watch(rows1Raw, () => { nextTick(renderChart) }, { deep: true })
+
+onMounted(() => {
+  nextTick(() => {
+    renderChart()
+    resizeHandler = onChartResize
+    window.addEventListener('resize', resizeHandler)
+  })
+})
+onBeforeUnmount(() => {
+  if (resizeHandler) window.removeEventListener('resize', resizeHandler)
+  if (chartInst) { chartInst.dispose(); chartInst = null }
+})
+
 // ============= 动作 =============
 async function runScan() {
   loading1.value = true
@@ -177,6 +277,36 @@ function onSortChange2({ prop, order }) {
           共 {{ pager1Total }} 条
           <span v-if="loading1">· 扫描中…</span>
         </span>
+      </div>
+
+      <!-- 表1 统计卡片 -->
+      <div v-if="stats1" class="stat-grid">
+        <div class="stat-card">
+          <div class="stat-num">{{ stats1.n }}</div>
+          <div class="stat-label">摘帽股总数</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-num" :style="{ color: (stats1.upRate >= 50 ? '#F5222D' : '#52C41A') }">{{ stats1.upRate }}%</div>
+          <div class="stat-label">摘帽后盈利家数占比（{{ stats1.up }}/{{ stats1.n }}）</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-num">{{ stats1.preAvg !== null ? stats1.preAvg + '%' : '-' }}</div>
+          <div class="stat-label">摘帽前平均涨幅</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-num" :style="{ color: (Number(stats1.postAvg) >= 0 ? '#F5222D' : '#52C41A') }">{{ stats1.postAvg !== null ? stats1.postAvg + '%' : '-' }}</div>
+          <div class="stat-label">摘帽后平均涨幅</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-num">{{ stats1.postMedian !== null ? stats1.postMedian + '%' : '-' }}</div>
+          <div class="stat-label">摘帽后涨幅中位数</div>
+        </div>
+      </div>
+
+      <!-- 表1 涨幅分布图 -->
+      <div v-if="stats1" class="chart-box">
+        <div class="chart-title">摘帽后涨幅 TOP15（红色=上涨 绿色=下跌，灰色=摘帽前）</div>
+        <div ref="chartRef" style="width:100%;height:340px"></div>
       </div>
 
       <el-form :inline="true" :model="params">
@@ -277,4 +407,42 @@ function onSortChange2({ prop, order }) {
 }
 .card-sub { color: var(--el-text-color-secondary); font-size: 12px; }
 .pager-row { display: flex; justify-content: flex-end; margin-top: 12px; }
+
+/* ========== 表1 统计卡片 & 图表 ========== */
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.stat-card {
+  background: var(--el-fill-color-light, #f5f7fa);
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+  padding: 14px 16px;
+  text-align: center;
+}
+.stat-num {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--el-text-color-primary);
+  line-height: 1.2;
+}
+.stat-label {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+.chart-box {
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 16px;
+}
+.chart-title {
+  font-size: 13px;
+  color: var(--el-text-color-regular);
+  margin-bottom: 8px;
+  font-weight: 500;
+}
 </style>
