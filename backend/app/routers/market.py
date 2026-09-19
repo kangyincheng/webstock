@@ -7,15 +7,16 @@ import os
 import threading
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from ..cache import CacheLayer
-from ..schemas import (DataResponse, STScanParams, GenericScanParams,
+from ..schemas import (DataResponse, STScanParams, STAddParams, GenericScanParams,
                        MarketDateParams, HotStocksParams)
 from ..services.market_service import MarketServices
+from ..services import st_data_service
 from ..services.audit_service import (CATEGORY_ST_SCAN, CATEGORY_ST_REINSTATE_SCAN,
                                       CATEGORY_SECTOR_HEAT, CATEGORY_HOT_STOCKS)
-from ..deps import audit_action, get_current_user_or_none
+from ..deps import audit_action, get_current_user_or_none, get_current_admin
 
 router = APIRouter()
 
@@ -38,20 +39,17 @@ def _cache_key(ns: str, **kwargs) -> str:
 
 
 # ---------- ST 摘帽（长任务）----------
-# 预计算数据路径（baostock 不可达时使用）
+# 预计算数据文件路径（与 st_data_service.DATA_FILE 一致，仅用于兜底参考）
 _PRECOMPUTED_ST_SCAN = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
     "data", "st_scan_results.json")
 
 
 def _load_precomputed_st_scan() -> Optional[Dict[str, Any]]:
-    """加载预计算的 ST 摘帽前后表现数据（新浪财经历史K线数据源）。"""
-    try:
-        if os.path.isfile(_PRECOMPUTED_ST_SCAN):
-            with open(_PRECOMPUTED_ST_SCAN, "r", encoding="utf-8") as f:
-                return json.load(f)
-    except Exception:
-        pass
+    """加载预计算的 ST 摘帽前后表现数据（由管理员后台维护）。"""
+    data = st_data_service.load_data()
+    if data.get("records"):
+        return data
     return None
 
 
@@ -145,6 +143,70 @@ async def st_scan(params: STScanParams,
         cache.set_json(key, result, ex=3600 * 6)
     msg = f"扫描 {len(records)} 条记录" + ("（演示数据）" if is_demo else "")
     return DataResponse(data=result, message=msg)
+
+
+# ---------- ST 摘帽：管理员后台维护（输入股票代码自动加入列表）----------
+@router.get("/st/list", response_model=DataResponse)
+async def st_list():
+    """公开：返回预计算文件中所有 ST 摘帽记录（管理员后台维护）。"""
+    records = st_data_service.list_records()
+    return DataResponse(data={"records": records, "total": len(records)},
+                       message=f"共 {len(records)} 条")
+
+
+@router.post("/st/add", response_model=DataResponse)
+@audit_action(CATEGORY_ST_SCAN, "管理员添加ST摘帽股票 {payload.code}",
+              capture_response=False,
+              target_key=lambda u, p, r, e: f"code={p.code if p else None}")
+async def st_add(payload: STAddParams,
+                 request: Request,
+                 admin: Dict[str, Any] = Depends(get_current_admin)):
+    """管理员：输入股票代码 -> 自动抓取巨潮撤销ST公告 + 新浪K线 + 实时价，
+    计算摘帽前后 [5,10,15,20] 交易日涨幅，写入预计算文件。代码已存在则覆盖更新。
+    """
+    loop = asyncio.get_running_loop()
+    try:
+        rec = await asyncio.wait_for(
+            loop.run_in_executor(None,
+                lambda: st_data_service.add_stock(payload.code)),
+            timeout=120.0)
+    except asyncio.TimeoutError:
+        raise HTTPException(504, "抓取超时（巨潮/新浪响应慢），请稍后重试")
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        raise HTTPException(500, f"添加失败: {e}")
+    # 清除 /st/scan 缓存，让公开页能立即看到新数据
+    try:
+        CacheLayer.instance().delete("webstock:st-scan-v3:*")
+    except Exception:
+        pass
+    return DataResponse(
+        data=rec,
+        message=f"已添加 {rec.get('股票名称')}({rec.get('代码')}) 摘帽日={rec.get('结束ST日期')}")
+
+
+@router.delete("/st/{code}", response_model=DataResponse)
+@audit_action(CATEGORY_ST_SCAN, "管理员删除ST摘帽股票 {code}",
+              capture_response=False,
+              target_key=lambda u, p, r, e, code=None: f"code={code}")
+async def st_delete(code: str,
+                    request: Request,
+                    admin: Dict[str, Any] = Depends(get_current_admin)):
+    """管理员：从预计算文件中删除一只股票。"""
+    loop = asyncio.get_running_loop()
+    try:
+        ok = await loop.run_in_executor(
+            None, lambda: st_data_service.delete_stock(code))
+    except Exception as e:
+        raise HTTPException(500, f"删除失败: {e}")
+    if not ok:
+        raise HTTPException(404, f"未找到该股票: {code}")
+    try:
+        CacheLayer.instance().delete("webstock:st-scan-v3:*")
+    except Exception:
+        pass
+    return DataResponse(message=f"已删除 {code}")
 
 
 @router.post("/st-reinstate/scan", response_model=DataResponse)

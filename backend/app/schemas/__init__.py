@@ -66,6 +66,11 @@ class STScanParams(BaseModel):
     after_days: int = 30
 
 
+class STAddParams(BaseModel):
+    code: str = Field(..., min_length=4, max_length=20,
+                      description="股票代码，可带 sh/sz/bj 前缀，如 600744 / sh.600744")
+
+
 class GenericScanParams(BaseModel):
     months_back: int = 24
 

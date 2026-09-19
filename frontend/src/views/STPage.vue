@@ -3,6 +3,10 @@ import { reactive, ref, computed, watch, onMounted, onBeforeUnmount, nextTick } 
 import { ElMessage } from 'element-plus'
 import * as echarts from 'echarts'
 import { stScan } from '../api/index.js'
+import { tokenStore } from '../api/http.js'
+
+// ============= 管理员入口（仅管理员可见）=============
+const isAdmin = computed(() => !!tokenStore.user?.is_admin)
 
 // ============= 参数 =============
 const N_OPTIONS = [5, 10, 15, 20]
@@ -181,10 +185,11 @@ function onSortChange1({ prop, order }) {
 
 <template>
   <div>
-    <h2 class="page-title">ST 摘帽 / ST 恢复上市</h2>
+    <h2 class="page-title">ST 摘帽前后表现</h2>
     <p class="page-desc">
       已摘帽股行情表现（数据源：巨潮资讯公告 + 新浪财经历史K线 + 实时行情）。
-      数据已预计算，后台更新时直接替换 <code>backend/data/st_scan_results.json</code> 即可。
+      本页为固定展示页，数据由管理员后台维护<router-link
+        v-if="isAdmin" to="/admin/st" class="admin-link">前往维护 →</router-link>。
     </p>
 
     <!-- ========== 表 1 ========== -->
@@ -239,7 +244,6 @@ function onSortChange1({ prop, order }) {
             <el-option v-for="n in N_OPTIONS" :key="n" :label="n + '日'" :value="n" />
           </el-select>
         </div>
-        <el-button size="small" @click="runScan" :loading="loading1">重新加载</el-button>
       </div>
 
       <!-- 表格：固定高度 + 横向滚动 -->
@@ -285,6 +289,12 @@ function onSortChange1({ prop, order }) {
 :deep(.cell-down) { color: #52C41A !important; font-weight: 600; }
 :deep(.row-up td) { background: #fff6f6 !important; }
 :deep(.row-down td) { background: #f2fff4 !important; }
+
+.admin-link {
+  margin-left: 6px; color: var(--el-color-primary);
+  font-weight: 500; text-decoration: none;
+}
+.admin-link:hover { text-decoration: underline; }
 
 .card-title-row {
   display: flex; align-items: baseline; justify-content: space-between;

@@ -33,6 +33,8 @@ const routes = [
     meta: { title: '用户管理', icon: '👥', requireAuth: true, requireAdmin: true } },
   { path: '/admin/audit', name: 'AdminAudit', component: () => import('../views/AdminAudit.vue'),
     meta: { title: '全局审计', icon: '📋', requireAuth: true, requireAdmin: true } },
+  { path: '/admin/st', name: 'AdminST', component: () => import('../views/AdminST.vue'),
+    meta: { title: 'ST摘帽管理', icon: '🏷️', requireAuth: true, requireAdmin: true } },
 ]
 
 const router = createRouter({

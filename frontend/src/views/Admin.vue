@@ -21,6 +21,7 @@ onMounted(load)
 const navCards = [
   { title: '用户管理', desc: '查看/启用/停用/删除用户、重置密码、设置管理员', icon: '👥', path: '/admin/users' },
   { title: '全局审计', desc: '查看所有用户操作日志、失败记录、详情', icon: '📋', path: '/admin/audit' },
+  { title: 'ST摘帽管理', desc: '输入股票代码自动抓取摘帽日+前后涨幅，加入展示页', icon: '🏷️', path: '/admin/st' },
 ]
 </script>
 
