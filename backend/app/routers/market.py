@@ -14,6 +14,7 @@ from ..schemas import (DataResponse, STScanParams, STAddParams, GenericScanParam
                        MarketDateParams, HotStocksParams)
 from ..services.market_service import MarketServices
 from ..services import st_data_service
+from ..services import st_time_service
 from ..services.audit_service import (CATEGORY_ST_SCAN, CATEGORY_ST_REINSTATE_SCAN,
                                       CATEGORY_SECTOR_HEAT, CATEGORY_HOT_STOCKS)
 from ..deps import audit_action, get_current_user_or_none, get_current_admin
@@ -207,6 +208,60 @@ async def st_delete(code: str,
     except Exception:
         pass
     return DataResponse(message=f"已删除 {code}")
+
+
+# ---------- ST 恢复上市（公开：当前 ST 股票 + 可申请摘帽日）----------
+_ST_TIME_FILE = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+    "data", "st_time_results.json")
+
+
+def _load_st_time_cache() -> Optional[Dict[str, Any]]:
+    try:
+        if os.path.isfile(_ST_TIME_FILE):
+            with open(_ST_TIME_FILE, "r", encoding="utf-8") as f:
+                d = json.load(f)
+                if isinstance(d, dict) and isinstance(d.get("records"), list):
+                    return d
+    except Exception:
+        pass
+    return None
+
+
+@router.get("/st/time", response_model=DataResponse)
+async def st_time(refresh: bool = Query(False)):
+    """公开：返回当前交易中的 ST 股票列表 + ST 开始日期 + 可申请摘帽日。
+
+    默认读预计算文件（由每周日 0 点定时脚本写入）；
+    refresh=true 时实时扫描（新浪 VIP + 巨潮公告，约 30s）。
+    """
+    cache = CacheLayer.instance()
+    cache_key = "webstock:st-time:refresh=" + str(refresh)
+    if not refresh:
+        cached = cache.get_json(cache_key)
+        if cached is not None:
+            return DataResponse(data=cached, cache_hit=True, message="使用缓存")
+        # 优先读预计算文件
+        pre = _load_st_time_cache()
+        if pre:
+            data = {"records": pre["records"], "logs": pre.get("logs", [])}
+            cache.set_json(cache_key, data, ex=3600 * 6)
+            return DataResponse(data=data, message=f"扫描 {len(pre['records'])} 条（预计算）")
+
+    # 实时扫描
+    loop = asyncio.get_running_loop()
+    try:
+        records = await asyncio.wait_for(
+            loop.run_in_executor(None, st_time_service.scan_all),
+            timeout=180.0)
+    except (Exception, asyncio.TimeoutError) as exc:
+        return DataResponse(
+            data={"records": [], "logs": [f"实时扫描失败: {exc}（请稍后重试，或等周日定时刷新）"]},
+            message="实时扫描失败，可稍后重试")
+
+    data = {"records": records, "logs": []}
+    cache.set_json(cache_key, data, ex=3600 * 6)
+    return DataResponse(data=data, message=f"扫描 {len(records)} 条")
 
 
 @router.post("/st-reinstate/scan", response_model=DataResponse)

@@ -8,16 +8,22 @@ import { tokenStore } from './api/http.js'
 const router = useRouter()
 const route = useRoute()
 
+// 两级菜单：顶级 item 可带 children 数组，children 是叶子路由
 const navMenu = [
   { key: 'work', title: '工作台', items: [
-    { key: '/dashboard', title: '📊 数据看板', sub: false },
+    { key: '/dashboard', title: '📊 数据看板' },
     { key: '/predict', title: '📈 股票预测' },
-    { key: '/st', title: '🏷️ ST摘帽 / 恢复' },
     { key: '/cbond', title: '💴 可转债' },
     { key: '/tender', title: '📢 要约收购' },
     { key: '/sector', title: '🔥 板块热度' },
     { key: '/hot', title: '⭐ 热门股票' },
     { key: '/favorites', title: '💖 自选股' },
+    // ST 股票：两级子菜单
+    { key: '/st', title: '🏷️ ST 股票', expand: true, children: [
+      { key: '/st/analyze', title: '📊 ST股统计分析' },
+      { key: '/st/overview', title: '📈 ST股个股表现' },
+      { key: '/st/time', title: '📅 ST股摘帽时间' },
+    ]},
   ]},
   { key: 'mine', title: '我的', items: [
     { key: '/profile', title: '👤 个人中心', requireAuth: true },
@@ -42,6 +48,24 @@ const fullNav = computed(() => {
 
 const active = computed(() => route.path)
 function go(p) { router.push(p) }
+
+// ---- 两级菜单展开状态 ----
+const expanded = ref({})  // { '/st': true, '/cbond': false }
+function toggleExpand(itemKey) {
+  expanded.value[itemKey] = !expanded.value[itemKey]
+}
+function isActiveItem(item) {
+  if (item.children) {
+    return item.children.some(c => active.value.startsWith(c.key))
+  }
+  return active.value === item.key
+}
+function isExpanded(item) {
+  // 默认展开 ST 等有子项的；或路由匹配到子项时自动展开
+  if (!item.children) return false
+  if (item.children.some(c => active.value.startsWith(c.key))) return true
+  return expanded.value[item.key] ?? item.expand ?? false
+}
 
 const version = ref('')
 const user = ref(tokenStore.user)
@@ -171,17 +195,36 @@ const CaretBottom = defineComponent({
       <div class="aside-body">
         <div v-for="group in fullNav" :key="group.key" class="nav-group">
           <div class="nav-group-title">{{ group.title }}</div>
-          <div
-            v-for="m in group.items" :key="m.key"
-            class="nav-item"
-            :class="{ 'nav-active': active === m.key }"
-            @click="() => { go(m.key); if (isMobile) closeMenu() }"
-            @mouseenter="e => !active.endsWith(m.key) && (e.currentTarget.style.background = '#3a3c40')"
-            @mouseleave="e => !active.endsWith(m.key) && (e.currentTarget.style.background = 'transparent')"
-          >
-            <span class="nav-label">{{ m.title }}</span>
-            <span v-if="m.requireAuth && !user" class="nav-auth-badge">登录</span>
-          </div>
+          <template v-for="m in group.items" :key="m.key">
+            <!-- 有子项：可展开的父菜单 -->
+            <div v-if="m.children"
+                 class="nav-item nav-parent"
+                 :class="{ 'nav-active': isActiveItem(m), 'nav-open': isExpanded(m) }"
+                 @click="toggleExpand(m.key)"
+            >
+              <span class="nav-label">{{ m.title }}</span>
+              <span class="nav-caret">{{ isExpanded(m) ? '▾' : '▸' }}</span>
+            </div>
+            <div v-if="m.children && isExpanded(m)" class="nav-children">
+              <div
+                v-for="c in m.children" :key="c.key"
+                class="nav-item nav-child"
+                :class="{ 'nav-active': active === c.key || active.startsWith(c.key + '/') }"
+                @click="() => { go(c.key); if (isMobile) closeMenu() }"
+              >
+                <span class="nav-label">{{ c.title }}</span>
+              </div>
+            </div>
+            <!-- 无子项：普通叶子菜单 -->
+            <div v-else
+                 class="nav-item"
+                 :class="{ 'nav-active': active === m.key || active.startsWith(m.key + '/') }"
+                 @click="() => { go(m.key); if (isMobile) closeMenu() }"
+            >
+              <span class="nav-label">{{ m.title }}</span>
+              <span v-if="m.requireAuth && !user" class="nav-auth-badge">登录</span>
+            </div>
+          </template>
         </div>
       </div>
     </aside>
@@ -269,6 +312,24 @@ const CaretBottom = defineComponent({
   gap: 6px;
 }
 .nav-active {
+  background: var(--nav-active);
+  color: #fff;
+  border-left-color: #fff;
+}
+.nav-parent {
+  justify-content: space-between;
+  padding-right: 16px;
+}
+.nav-caret { font-size: 10px; color: #7a7f87; }
+.nav-open .nav-caret { color: #fff; }
+.nav-children { background: #1a1c1f; }
+.nav-item.nav-child {
+  padding-left: 44px;
+  font-size: 13px;
+  color: #9ea2a9;
+  border-left: 3px solid transparent;
+}
+.nav-item.nav-child.nav-active {
   background: var(--nav-active);
   color: #fff;
   border-left-color: #fff;
