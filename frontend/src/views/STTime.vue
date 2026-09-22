@@ -76,10 +76,6 @@ onMounted(() => runLoad())
 <template>
   <div>
     <h2 class="page-title">ST 股摘帽时间</h2>
-    <p class="page-desc">
-      当前交易中的 ST 股票：ST 开始日期 + 1 个日历年 = 可申请摘帽日（普通日历 +1 年，不含交易日顺延）。
-      数据来源：新浪 VIP 实时行情 + 巨潮资讯 ST 开始公告。每周日 0 点自动刷新。
-    </p>
 
     <div class="card" v-loading="loading">
       <div class="card-title-row">
