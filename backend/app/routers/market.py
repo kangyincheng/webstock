@@ -232,23 +232,39 @@ def _load_st_time_cache() -> Optional[Dict[str, Any]]:
 async def st_time(refresh: bool = Query(False)):
     """公开：返回当前交易中的 ST 股票列表 + ST 开始日期 + 可申请摘帽日。
 
-    默认读预计算文件（由每周日 0 点定时脚本写入）；
-    refresh=true 时实时扫描（新浪 VIP + 巨潮公告，约 30s）。
+    性能原则（重要！）：
+      - 默认请求绝不触发实时扫描，只读预计算文件（每周日 0 点由定时脚本刷新）。
+      - 只有显式 ?refresh=1 才会实时爬新浪/巨潮（约 30s，建议仅运维用）。
+      - 预计算文件不存在时返回空 + 提示，避免前端卡死 30s 超时。
     """
     cache = CacheLayer.instance()
     cache_key = "webstock:st-time:refresh=" + str(refresh)
-    if not refresh:
-        cached = cache.get_json(cache_key)
-        if cached is not None:
-            return DataResponse(data=cached, cache_hit=True, message="使用缓存")
-        # 优先读预计算文件
-        pre = _load_st_time_cache()
-        if pre:
-            data = {"records": pre["records"], "logs": pre.get("logs", [])}
-            cache.set_json(cache_key, data, ex=3600 * 6)
-            return DataResponse(data=data, message=f"扫描 {len(pre['records'])} 条（预计算）")
+    cached = cache.get_json(cache_key)
+    if cached is not None:
+        return DataResponse(data=cached, cache_hit=True, message="使用缓存")
 
-    # 实时扫描
+    pre = _load_st_time_cache()
+
+    if pre:
+        # 有预计算文件 → 返回（无论 refresh 与否都直接用，避免重复扫描）
+        data = {"records": pre["records"], "logs": pre.get("logs", [])}
+        cache.set_json(cache_key, data, ex=3600 * 6)
+        return DataResponse(data=data, message=f"扫描 {len(pre['records'])} 条（预计算）")
+
+    if not refresh:
+        # 无文件且用户没要求 refresh → 直接返回空，不扫描
+        # 给运维提示运行 refresh_all.py 或带 ?refresh=1 手动构建
+        tip = (
+            "数据文件未就绪，请联系管理员在服务器上运行: "
+            "python3 /workspace/tmp_script/refresh_all.py --no-delay  "
+            "（每周日 0 点定时脚本会自动刷新）"
+        )
+        empty = {"records": [], "logs": [tip, "当前线上 backend/data/st_time_results.json 不存在"]}
+        # 这个空结果也缓存 5 分钟，避免反复撞墙
+        cache.set_json(cache_key, empty, ex=300)
+        return DataResponse(data=empty, message="数据未就绪，请稍后再试")
+
+    # refresh=true 且无文件 → 实时扫描（约 30s，仅运维用）
     loop = asyncio.get_running_loop()
     try:
         records = await asyncio.wait_for(
@@ -256,12 +272,22 @@ async def st_time(refresh: bool = Query(False)):
             timeout=180.0)
     except (Exception, asyncio.TimeoutError) as exc:
         return DataResponse(
-            data={"records": [], "logs": [f"实时扫描失败: {exc}（请稍后重试，或等周日定时刷新）"]},
-            message="实时扫描失败，可稍后重试")
+            data={"records": [], "logs": [f"实时扫描失败: {exc}"]},
+            message="实时扫描失败")
 
-    data = {"records": records, "logs": []}
+    # 扫描成功 → 写入预计算文件 + 返回
+    try:
+        os.makedirs(os.path.dirname(_ST_TIME_FILE), exist_ok=True)
+        import json as _json
+        with open(_ST_TIME_FILE, "w", encoding="utf-8") as f:
+            _json.dump({"records": records, "logs": []}, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        records = records  # 扫描结果照样返回，写入失败只记日志
+        print(f"[st/time] 写入预计算文件失败: {e}", flush=True)
+
+    data = {"records": records, "logs": ["实时扫描（refresh=1）"]}
     cache.set_json(cache_key, data, ex=3600 * 6)
-    return DataResponse(data=data, message=f"扫描 {len(records)} 条")
+    return DataResponse(data=data, message=f"扫描 {len(records)} 条（实时）")
 
 
 @router.post("/st-reinstate/scan", response_model=DataResponse)
