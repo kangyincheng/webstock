@@ -50,17 +50,15 @@ watch(rowsSorted, () => { pager.page = 1 })
 
 const today = new Date().toISOString().slice(0, 10)
 
-async function runLoad(refresh = false) {
+async function runLoad() {
   loading.value = true
   try {
-    const qs = refresh ? '?refresh=1' : ''
-    const r = await http.get('/market/st/time' + qs)
+    const r = await http.get('/market/st/time')
     const body = r.data
     if (!body?.success) { ElMessage.error(body?.message || '加载失败'); return }
     const d = body.data || {}
     rowsRaw.value = d.records || []
     logLines.value = d.logs || []
-    if (body.cache_hit) ElMessage.info('使用缓存（可手动点"实时扫描"刷新）')
   } catch (e) { ElMessage.error(e?.message || '加载失败') }
   finally { loading.value = false }
 }
@@ -80,12 +78,8 @@ onMounted(() => runLoad())
     <div class="card" v-loading="loading">
       <div class="card-title-row">
         <h3 class="card-title">当前 ST 股票 {{ total ? `（${total} 只）` : '' }}</h3>
-        <div class="card-actions">
-          <el-input v-model="filterText" placeholder="搜索 名称/代码" size="small"
-                    style="width: 200px" clearable />
-          <el-button type="primary" size="small" :loading="loading"
-                     @click="runLoad(true)">🔄 实时扫描</el-button>
-        </div>
+        <el-input v-model="filterText" placeholder="搜索 名称/代码" size="small"
+                  style="width: 200px" clearable />
       </div>
 
       <el-table :data="pageRows" stripe border height="540" style="width: 100%"
