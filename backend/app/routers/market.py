@@ -128,7 +128,7 @@ async def st_scan(params: STScanParams,
     is_demo = False
     try:
         records = await asyncio.wait_for(
-            loop.run_in_executor(None, _run), timeout=600.0)
+            loop.run_in_executor(None, _run), timeout=120.0)
     except (Exception, asyncio.TimeoutError) as exc:
         # baostock 不可达 / 超时 -> 演示数据，按钮不崩
         records = list(_ST_SCAN_DEMO)
