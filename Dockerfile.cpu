@@ -1,20 +1,13 @@
 # syntax=docker/dockerfile:1.6
 # ------------------------------------------------------------------
 # webstock Backend Dockerfile（CPU-only + 国内镜像源优化，runtime 直装版）
-# 单 stage 后端运行镜像：pip 直接装到默认 site-packages，避免 --prefix 导致
-# 的 sys.path 分裂 / 镜像层翻倍 / 磁盘爆满问题。
+# 单 stage 后端运行镜像。
+# 前端由 nginx 容器热挂 ./frontend/dist 托管，本镜像不再构建前端。
 # ------------------------------------------------------------------
-
-FROM node:20-alpine AS fe-builder
-WORKDIR /fe
-COPY frontend/package.json frontend/vite.config.js frontend/tsconfig.json frontend/index.html ./
-COPY frontend/src ./src
-RUN npm install --registry=https://registry.npmmirror.com --no-audit --no-fund --loglevel=error \
- && npm run build
 
 FROM python:3.11-slim-bookworm AS runtime
 LABEL maintainer="kangyincheng" \
-      description="webstock (FastAPI + Vue3) runtime image (CPU-only)"
+      description="webstock (FastAPI) runtime image (CPU-only, no frontend build)"
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -45,9 +38,6 @@ RUN sed -i '/^torch/d' /tmp/reqs.txt \
 # 业务代码
 COPY --chown=app:app src /app/src
 COPY --chown=app:app backend /app/backend
-
-# 前端构建产物
-COPY --from=fe-builder --chown=app:app /fe/dist /app/frontend/dist
 
 RUN groupadd -r app 2>/dev/null; useradd -r -g app -d /app app 2>/dev/null; true \
  && mkdir -p /app/backend/data /app/backend/models \
