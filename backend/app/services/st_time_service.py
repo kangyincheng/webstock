@@ -262,9 +262,7 @@ def scan_all() -> List[Dict[str, Any]]:
             start_date = find_st_start_date(pure)
         except Exception:
             start_date = None
-        if not start_date:
-            return None
-        reinstate = _add_one_year(start_date)
+        reinstate = _add_one_year(start_date) if start_date else None
         trade_val = float(it.get("trade", 0) or 0)
         pe = it.get("per")
         pb = it.get("pb")
@@ -284,7 +282,7 @@ def scan_all() -> List[Dict[str, Any]]:
         }
 
     results: List[Dict[str, Any]] = []
-    with ThreadPoolExecutor(max_workers=8) as ex:
+    with ThreadPoolExecutor(max_workers=4) as ex:
         futs = {ex.submit(_proc, it): it for it in st_raw}
         done = 0
         for fut in as_completed(futs):
