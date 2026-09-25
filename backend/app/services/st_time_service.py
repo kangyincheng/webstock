@@ -145,9 +145,10 @@ def find_st_start_date(pure_code: str) -> Optional[str]:
 
     策略：
       1. 搜"实施其他风险警示" + "实施退市风险警示"，收集所有"ST 开始"公告
+         （含"将被实施"提示性公告 — 表示即将进入 ST，时间线等价）
       2. 搜"撤销其他风险警示" + "撤销退市风险警示"（即摘帽公告）
       3. 取：所有 ST 开始公告中，日期 **晚于最后一次摘帽公告** 的那条
-         （如果没有任何摘帽公告，取最老的 ST 开始公告 — 说明一直 ST）
+         （如果没有任何摘帽公告，取最近的 ST 开始公告 — 说明一直 ST）
     """
     info = _get_stock_info(pure_code)
     if not info or not info.get("orgId"):
@@ -201,13 +202,13 @@ def find_st_start_date(pure_code: str) -> Optional[str]:
         return None
 
     last_resolve = max(st_resolve_ts) if st_resolve_ts else 0
-    # 取 st_start_ts 中 > last_resolve 的最小那个（即摘帽后第一次 ST）
+    # 取 st_start_ts 中 > last_resolve 的 **最大** 那个（即摘帽后最近一次 ST）
     candidates = [ts for ts in st_start_ts if ts > last_resolve]
     if candidates:
-        best_ts = min(candidates)
+        best_ts = max(candidates)          # 最近一轮，不是最早
     else:
-        # 所有 ST 都被撤销过（理论上不该出现），取最老的
-        best_ts = min(st_start_ts)
+        # 没有摘帽记录 → 取最近的 ST 开始（含"将被实施"提示性公告）
+        best_ts = max(st_start_ts)         # 最近，不是最老
 
     return _tz_cst(best_ts)
 
