@@ -11,7 +11,6 @@ ST 开始日 + 1 个日历年 = 可申请摘帽日。
   股票名称 / 代码 / ST开始日期 / 可申请摘帽日 / 距可申请天数 /
   最新价 / PE / PB / 换手率 / 市值(亿)
 """
-from __future__ import annotations
 
 import os
 import re
@@ -324,7 +323,7 @@ if __name__ == "__main__":
         "logs": [f"扫描 {len(results)} 只 ST 股票",
                  f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"],
     }
-    os.makedirs("/workspace/backend/data", exist_ok=True)
-    with open("/workspace/backend/data/st_time_results.json", "w") as f:
+    os.makedirs("/var/www/webstock/backend/data", exist_ok=True)
+    with open("/var/www/webstock/backend/data/st_time_results.json", "w") as f:
         json.dump(out, f, ensure_ascii=False, indent=2)
     print(f"已保存 {len(results)} 只")
