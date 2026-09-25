@@ -1,4 +1,5 @@
 <script setup>
+// v2: 修复列定义，确保显示 ST摘帽时间 正确列
 import { reactive, ref, computed, watch, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import http from '../api/http.js'
