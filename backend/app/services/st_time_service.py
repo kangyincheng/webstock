@@ -306,7 +306,17 @@ def scan_all() -> List[Dict[str, Any]]:
         except Exception:
             r["距可申请天数"] = None
 
-    # 排序：最接近可申请日的在前
+    # 超期过滤：距可申请天数 < -365 的（已过可申请日1年以上）视为超期，ST开始日期太老不可信
+    for r in results:
+        d = r.get("距可申请天数")
+        if d is not None and d < -365:
+            # 超期的清掉日期字段，避免误导
+            r["ST开始日期"] = None
+            r["可申请摘帽日"] = None
+            r["距可申请天数"] = None
+
+    # 排序：有日期的在前，然后按距可申请天数升序
+    results.sort(key=lambda x: x.get("距可申请天数") is not None, reverse=True)
     results.sort(key=lambda x: x.get("距可申请天数") or 99999)
     return results
 
