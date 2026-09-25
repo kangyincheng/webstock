@@ -130,9 +130,10 @@ onMounted(runLoad)
       <el-select v-model="afterSel" size="default" style="width: 100px">
         <el-option v-for="n in N_OPTIONS" :key="n" :label="'后 ' + n + '日'" :value="n" />
       </el-select>
-      <span style="margin-left: auto; color: var(--el-text-color-secondary); font-size: 12px;">
+      <span class="count-sub">
         共 {{ pager1Total }} 条
         <span v-if="loading1">· 加载中…</span>
+        <router-link v-if="isAdmin" to="/admin/st" class="admin-link">管理员维护 →</router-link>
       </span>
     </div>
 
@@ -174,13 +175,14 @@ onMounted(runLoad)
 :deep(.row-up td) { background: #fff6f6 !important; }
 :deep(.row-down td) { background: #f2fff4 !important; }
 
-.admin-link { margin-left: 6px; color: var(--el-color-primary); font-weight: 500; text-decoration: none; }
+.admin-link { margin-left: 10px; color: var(--el-color-primary); font-weight: 500; text-decoration: none; }
 .admin-link:hover { text-decoration: underline; }
 
-.pager-row { display: flex; justify-content: flex-end; margin-top: 12px; }
+.count-sub { color: var(--el-text-color-secondary); font-size: 12px; margin-left: auto; }
+.pager-row { display: flex; justify-content: flex-end; margin-top: 8px; }
 
 .filter-bar {
   display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
-  padding: 0 0 12px 0;
+  padding: 0 0 10px 0;
 }
 </style>

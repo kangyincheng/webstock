@@ -143,12 +143,12 @@ def _get_stock_info(pure_code: str) -> Optional[Dict[str, str]]:
 def find_st_start_date(pure_code: str) -> Optional[str]:
     """从巨潮公告里找到"当前这一轮 ST 开始"的日期。
 
-    策略：
-      1. 搜"实施其他风险警示" + "实施退市风险警示"，收集所有"ST 开始"公告
-         （含"将被实施"提示性公告 — 表示即将进入 ST，时间线等价）
-      2. 搜"撤销其他风险警示" + "撤销退市风险警示"（即摘帽公告）
-      3. 取：所有 ST 开始公告中，日期 **晚于最后一次摘帽公告** 的那条
-         （如果没有任何摘帽公告，取最近的 ST 开始公告 — 说明一直 ST）
+    正确策略（按时间线追）：
+      1. 搜全量 "ST 开始" 公告（含"将被实施"的提示性公告 + "被实施"的正式公告）
+      2. 搜全量 "摘帽/撤销" 公告
+      3. 时间线倒序看：
+         - 如果最近一条事件是 ST 开始 → 这条就是当前 ST 的开始日
+         - 如果最近一条事件是 摘帽 → 该股票当前不在 ST 状态（返回 None）
     """
     info = _get_stock_info(pure_code)
     if not info or not info.get("orgId"):
@@ -164,12 +164,12 @@ def find_st_start_date(pure_code: str) -> Optional[str]:
         "Referer": "http://www.cninfo.com.cn/new/fulltextSearch",
     }
 
-    st_start_ts: List[int] = []      # 所有 ST 开始公告的时间戳
-    st_resolve_ts: List[int] = []    # 所有 ST 撤销（摘帽）公告的时间戳
+    # 收集所有事件：(ts, kind="start"|"resolve")
+    events: List[tuple] = []
 
-    def _collect(keywords, target_list):
+    def _collect_events(keywords, kind: str):
         for kw in keywords:
-            for page in range(1, 3):
+            for page in range(1, 5):
                 data = {
                     "pageNum": str(page), "pageSize": "30", "tabName": "fulltext",
                     "searchkey": kw, "isHLtitle": "true", "stock": stock_param,
@@ -192,25 +192,39 @@ def find_st_start_date(pure_code: str) -> Optional[str]:
                     title = re.sub(r"<[^>]+>", "", a.get("announcementTitle", ""))
                     ts = a.get("announcementTime") or 0
                     if ts and _matches_keywords(title, kw):
-                        target_list.append(ts)
+                        events.append((ts, kind))
                 time.sleep(0.15)
 
-    _collect(["实施其他风险警示", "实施退市风险警示"], st_start_ts)
-    _collect(["撤销其他风险警示", "撤销退市风险警示", "摘帽"], st_resolve_ts)
+    # ★ ST 开始：包含"将被实施"的提示性公告 + "被实施"的正式公告
+    _collect_events(["实施其他风险警示", "实施退市风险警示",
+                     "将被实施其他风险警示", "将被实施退市风险警示"], "start")
+    _collect_events(["撤销其他风险警示", "撤销退市风险警示", "摘帽"], "resolve")
 
-    if not st_start_ts:
+    if not events:
         return None
 
-    last_resolve = max(st_resolve_ts) if st_resolve_ts else 0
-    # 取 st_start_ts 中 > last_resolve 的 **最大** 那个（即摘帽后最近一次 ST）
-    candidates = [ts for ts in st_start_ts if ts > last_resolve]
-    if candidates:
-        best_ts = max(candidates)          # 最近一轮，不是最早
-    else:
-        # 没有摘帽记录 → 取最近的 ST 开始（含"将被实施"提示性公告）
-        best_ts = max(st_start_ts)         # 最近，不是最老
+    # 按时间倒序，去重（同 ts 取 start 优先）
+    events.sort(key=lambda x: -x[0])
+    seen_ts = set()
+    dedup = []
+    for ts, kind in events:
+        if ts in seen_ts:
+            continue
+        seen_ts.add(ts)
+        dedup.append((ts, kind))
 
-    return _tz_cst(best_ts)
+    # 最近一条事件
+    last_ts, last_kind = dedup[0]
+
+    if last_kind == "resolve":
+        # 最近一条是摘帽 → 该股票当前不在 ST（但名字带 ST）
+        # 往回找最后一次 ST 开始（用于参考），但返回 None 表示"非当前 ST"
+        return None
+
+    # 最近一条是 ST 开始 → 再往前看有没有更早的同一轮？用 max 取最近那条
+    # 直接返回最新的 start 事件时间戳
+    latest_start_ts = max(ts for ts, k in dedup if k == "start")
+    return _tz_cst(latest_start_ts)
 
 
 def _matches_keywords(title: str, kw: str) -> bool:
