@@ -116,67 +116,54 @@ onMounted(runLoad)
 
 <template>
   <div>
-    <h2 class="page-title">ST 股统计分析</h2>
-    <p class="page-desc">
-      640 只已摘帽股票完整数据：名称、代码、摘帽日、摘帽前/后 [5,10,15,20] 交易日涨幅、收盘价、PE/PB。
-      支持搜索筛选、排序、分页。
-      <router-link v-if="isAdmin" to="/admin/st" class="admin-link">管理员维护 →</router-link>
-    </p>
+    <!-- 工具栏：搜索 + 筛选 + N 下拉 + 计数 -->
+    <div class="filter-bar">
+      <el-input v-model="filterText" placeholder="搜索 名称 / 代码" size="default"
+                style="width: 220px" clearable />
+      <el-select v-model="filterUp" placeholder="摘帽后" size="default" style="width: 110px" clearable>
+        <el-option label="盈利" value="win" />
+        <el-option label="亏损" value="loss" />
+      </el-select>
+      <el-select v-model="beforeSel" size="default" style="width: 100px">
+        <el-option v-for="n in N_OPTIONS" :key="n" :label="'前 ' + n + '日'" :value="n" />
+      </el-select>
+      <el-select v-model="afterSel" size="default" style="width: 100px">
+        <el-option v-for="n in N_OPTIONS" :key="n" :label="'后 ' + n + '日'" :value="n" />
+      </el-select>
+      <span style="margin-left: auto; color: var(--el-text-color-secondary); font-size: 12px;">
+        共 {{ pager1Total }} 条
+        <span v-if="loading1">· 加载中…</span>
+      </span>
+    </div>
 
-    <div class="card">
-      <div class="card-title-row">
-        <h3 class="card-title">摘帽股票列表</h3>
-        <span class="card-sub">
-          共 {{ pager1Total }} 条
-          <span v-if="loading1">· 加载中…</span>
-        </span>
-      </div>
+    <!-- 表格：固定高度 + 横向滚动 -->
+    <el-table
+      :data="rows1Page"
+      stripe border height="620"
+      style="width: 100%"
+      :row-class-name="rowTone1"
+      :default-sort="{ prop: '结束ST日期', order: 'descending' }"
+      @sort-change="onSortChange1"
+    >
+      <el-table-column
+        v-for="c in COLS1"
+        :key="c.prop"
+        :prop="c.prop" :label="c.label"
+        :width="c.w" :min-width="c.w"
+        :fixed="c.fixed"
+        sortable="custom" show-overflow-tooltip align="center"
+        :cell-class-name="cellTone" />
+      <template #empty><el-empty description="暂无数据" /></template>
+    </el-table>
 
-      <!-- 工具栏：搜索 + 筛选 + N 下拉 -->
-      <div class="filter-bar">
-        <el-input v-model="filterText" placeholder="搜索 名称 / 代码" size="default"
-                  style="width: 220px" clearable />
-        <el-select v-model="filterUp" placeholder="摘帽后" size="default" style="width: 110px" clearable>
-          <el-option label="盈利" value="win" />
-          <el-option label="亏损" value="loss" />
-        </el-select>
-        <el-select v-model="beforeSel" size="default" style="width: 100px">
-          <el-option v-for="n in N_OPTIONS" :key="n" :label="'前 ' + n + '日'" :value="n" />
-        </el-select>
-        <el-select v-model="afterSel" size="default" style="width: 100px">
-          <el-option v-for="n in N_OPTIONS" :key="n" :label="'后 ' + n + '日'" :value="n" />
-        </el-select>
-      </div>
-
-      <!-- 表格：固定高度 + 横向滚动 -->
-      <el-table
-        :data="rows1Page"
-        stripe border height="560"
-        style="width: 100%"
-        :row-class-name="rowTone1"
-        :default-sort="{ prop: '结束ST日期', order: 'descending' }"
-        @sort-change="onSortChange1"
-      >
-        <el-table-column
-          v-for="c in COLS1"
-          :key="c.prop"
-          :prop="c.prop" :label="c.label"
-          :width="c.w" :min-width="c.w"
-          :fixed="c.fixed"
-          sortable="custom" show-overflow-tooltip align="center"
-          :cell-class-name="cellTone" />
-        <template #empty><el-empty description="暂无数据" /></template>
-      </el-table>
-
-      <div class="pager-row">
-        <el-pagination
-          v-model:current-page="pager1.page"
-          v-model:page-size="pager1.size"
-          :page-sizes="PAGE_SIZES"
-          layout="total, sizes, prev, pager, next, jumper"
-          :total="pager1Total"
-          background small />
-      </div>
+    <div class="pager-row">
+      <el-pagination
+        v-model:current-page="pager1.page"
+        v-model:page-size="pager1.size"
+        :page-sizes="PAGE_SIZES"
+        layout="total, sizes, prev, pager, next, jumper"
+        :total="pager1Total"
+        background small />
     </div>
   </div>
 </template>
@@ -190,13 +177,6 @@ onMounted(runLoad)
 .admin-link { margin-left: 6px; color: var(--el-color-primary); font-weight: 500; text-decoration: none; }
 .admin-link:hover { text-decoration: underline; }
 
-.card-title-row {
-  display: flex; align-items: baseline; justify-content: space-between;
-  padding: 0 4px 12px 4px; border-bottom: 1px solid var(--el-border-color-lighter);
-  margin-bottom: 12px;
-}
-.card-title { margin: 0; font-size: 16px; font-weight: 600; color: var(--el-text-color-primary); }
-.card-sub { color: var(--el-text-color-secondary); font-size: 12px; }
 .pager-row { display: flex; justify-content: flex-end; margin-top: 12px; }
 
 .filter-bar {
