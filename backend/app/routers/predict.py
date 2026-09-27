@@ -66,6 +66,16 @@ async def run_train(params: PredictParams,
                 cur = _TASK_RESULT.get(task_id, {})
                 cur.update(result)
                 cur["status"] = result.get("status", "success")
+                # run_training 返回的 dict 没有 epoch/total_epochs 字段，
+                # 但前端进度条需要它们才能在训练结束后显示 100%。
+                # train_losses 长度 = 实际跑过的 epoch 数。
+                losses = result.get("train_losses") or []
+                if losses:
+                    final_epoch = len(losses)
+                    cur["epoch"] = final_epoch
+                    cur["total_epochs"] = final_epoch
+                    cur["train_loss"] = losses[-1]
+                    cur["val_loss"] = (result.get("val_losses") or [None])[-1]
         except Exception as e:
             with _TASK_LOCK:
                 _TASK_RESULT[task_id].update({"status": "error", "error": str(e)})
