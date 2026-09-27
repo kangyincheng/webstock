@@ -105,27 +105,6 @@ const searchStocks = async (query) => {
 
 function pushLog(msg) { logs.value.push(msg) }
 
-function ws_connect(task_id) {
-  const proto = location.protocol === 'https:' ? 'wss' : 'ws'
-  const url = `${proto}://${location.host}/ws/train/${task_id}`
-  try {
-    ws = new WebSocket(url)
-    ws.onmessage = (ev) => {
-      const d = JSON.parse(ev.data)
-      if (d.epoch) progress.epoch = d.epoch
-      if (d.total_epochs) progress.total_epochs = d.total_epochs
-      if (typeof d.train_loss === 'number') progress.train_loss = d.train_loss
-      if (typeof d.val_loss === 'number') progress.val_loss = d.val_loss
-      if (d.message) pushLog(`[${d.stage || ''}] ${d.message}`)
-    }
-  } catch (e) { pushLog('WebSocket 连接失败，改用轮询') }
-}
-
-function ws_close() {
-  try { ws && ws.close() } catch {}
-  ws = null
-}
-
 const pct = computed(() =>
   progress.total_epochs ? Math.round((progress.epoch / progress.total_epochs) * 100) : 0)
 
