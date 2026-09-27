@@ -141,14 +141,20 @@ def _import_tf_trainer():
     return TFStockTrainer
 
 
-def _df_to_lists(df_loader: StockDataLoader, train_ratio: float = 0.8):
-    """返回测试集上的 dates/actual/predicted（对齐长度）。"""
+def _df_to_lists(df_loader: StockDataLoader, train_ratio: float = 0.8, seq_len: int = 60):
+    """返回测试集上的 dates/actual，与 preprocess() 切分方式完全对齐。
+
+    preprocess 用 seq_len + train_size_X 作为测试集起点，这里必须保持一致：
+        train_size_X = int((len(df) - seq_len) * train_ratio)
+        test_start   = seq_len + train_size_X
+    """
     dates = []
     actual = []
     if df_loader.df is not None:
         n = len(df_loader.df)
-        n_train = int(n * train_ratio)
-        test_df = df_loader.df.iloc[n_train:]
+        train_size_X = int((n - seq_len) * train_ratio)
+        test_start = seq_len + train_size_X
+        test_df = df_loader.df.iloc[test_start:]
         dates = test_df["date"].astype(str).tolist() if "date" in test_df.columns else []
         target = df_loader.target_col if hasattr(df_loader, "target_col") else "close"
         if target in test_df.columns:
@@ -285,18 +291,19 @@ class TrainingService:
             log = self._wrap_cb(task_id, progress_cb, "predict")
             log(msg="[4/4] 测试集推理 & 保存模型 ...")
             pred_scaled = trainer.predict(loader.X_test)
-            dates, actual = _df_to_lists(loader, train_ratio=float(params.get("train_ratio", 0.8)))
+            seq_len = loader.X_test.shape[1]
+            dates, actual = _df_to_lists(loader, train_ratio=float(params.get("train_ratio", 0.8)), seq_len=seq_len)
             # 预测值反归一化回原始价格区间（模型在 MinMax 缩放后的 y 上训练）
             pred_inv = loader.inverse_transform_close(pred_scaled, loader.target_col)
-            # pred 比 dates 短 seq_len（时序预测用 seq_len 天预测 seq_len+1 天），
-            # 所以 predicted[i] 对应 dates[i + seq_len]。前面补 None 对齐，
-            # 前端图表上预测线从 seq_len 位置开始延伸到右端。
+            # 修复后 _df_to_lists 与 preprocess 切分完全对齐，
+            # pred_list[j] 对应 dates[j] / actual[j]，长度天然一致，无需再补 None 或截断。
             pred_list = [round(float(x), 4) for x in pred_inv.ravel().tolist()]
-            seq_len = loader.X_test.shape[1]
-            pred_full = [None] * min(seq_len, len(dates)) + pred_list
-            # 若 pred_full 比 dates 长一点点（极少数情形），截一下
-            if len(pred_full) > len(dates):
-                pred_full = pred_full[: len(dates)]
+            pred_full = pred_list
+            # 保险：若长度仍有差异（极端情形），以较短者为准
+            min_len = min(len(pred_full), len(dates))
+            pred_full = pred_full[:min_len]
+            dates = dates[:min_len]
+            actual = actual[:min_len]
 
             result["predicted"] = pred_full
             result["actual"] = actual
