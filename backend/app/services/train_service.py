@@ -4,12 +4,14 @@
 """
 from __future__ import annotations
 
+import json
 import os
 import sys
 import time
 import uuid
 import traceback
-from typing import Any, Callable, Dict, Optional
+from datetime import datetime, timedelta
+from typing import Any, Callable, Dict, List, Optional
 
 import numpy as np
 
@@ -24,56 +26,109 @@ from data_loader import StockDataLoader  # noqa: E402
 
 DATA_DIR = os.path.join(BASE_DIR, "backend", "data")
 MODEL_DIR = os.path.join(BASE_DIR, "backend", "models")
+_TRADE_CAL_PATH = os.path.join(DATA_DIR, "trade_calendar.json")
+_TRADE_CAL_TTL_DAYS = 365  # 一年更新一次
+
+# 模块级内存缓存，避免每次都读磁盘
+_TRADE_DAYS_CACHE: Optional[List[str]] = None
 
 
-def _find_next_trade_date(last_date_str: str) -> str | None:
-    """通过 baostock query_trade_dates 获取 last_date 之后的第一个真实交易日。
+def _load_trade_calendar(force_refresh: bool = False) -> Optional[List[str]]:
+    """返回已排序的交易日列表（字符串 YYYY-MM-DD），失败返回 None。
 
-    使用 baostock 官方交易日历接口，比查询 K 线更准确（不会因为休市返回 None）。
-    失败时返回 None，由调用方回退。
+    三级缓存：内存 → JSON 文件 → baostock 下载。
     """
-    from datetime import datetime, timedelta
+    global _TRADE_DAYS_CACHE
 
+    # 1) 内存命中
+    if _TRADE_DAYS_CACHE is not None and not force_refresh:
+        return _TRADE_DAYS_CACHE
+
+    # 2) 读本地 JSON，若未过期则直接用
+    if os.path.isfile(_TRADE_CAL_PATH) and not force_refresh:
+        try:
+            with open(_TRADE_CAL_PATH, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            updated = data.get("updated", "")
+            days = data.get("trading_days", [])
+            if days:
+                age = (datetime.now().date() - datetime.strptime(updated, "%Y-%m-%d").date()).days
+                if age < _TRADE_CAL_TTL_DAYS:
+                    _TRADE_DAYS_CACHE = sorted(set(days))
+                    return _TRADE_DAYS_CACHE
+        except Exception:
+            pass  # 读坏了也不怕，往下重新下载
+
+    # 3) 向 baostock 拉取「当年 + 下一年」的完整交易日历
     try:
         import baostock as bs
     except ImportError:
         return None
 
     try:
-        d0 = datetime.strptime(last_date_str[:10], "%Y-%m-%d")
-        search_end = (d0 + timedelta(days=60)).strftime("%Y-%m-%d")
+        this_year = datetime.now().year
+        start = f"{this_year - 1}-01-01"   # 多带过去一年，保险
+        end = f"{this_year + 2}-12-31"     # 到后年底
 
         lg = bs.login()
         if lg.error_code != "0":
             return None
 
-        rs = bs.query_trade_dates(start_date=last_date_str[:10], end_date=search_end)
+        rs = bs.query_trade_dates(start_date=start, end_date=end)
         if rs.error_code != "0":
             bs.logout()
             return None
 
-        # 收集所有 is_trading_day == '1' 的交易日
-        trading_days = []
+        days: List[str] = []
         while rs.next():
             row = rs.get_row_data()
-            # fields: ['calendar_date', 'is_trading_day']
             if len(row) >= 2 and row[1] == "1":
-                trading_days.append(row[0])
+                days.append(row[0])
 
         bs.logout()
 
-        # 找第一个 > last_date 的
-        for d in trading_days:
-            if d > last_date_str[:10]:
-                return d
+        if not days:
+            return None
 
-        return None
+        days = sorted(set(days))
+        _TRADE_DAYS_CACHE = days
+
+        # 落盘 JSON
+        try:
+            os.makedirs(DATA_DIR, exist_ok=True)
+            with open(_TRADE_CAL_PATH, "w", encoding="utf-8") as f:
+                json.dump(
+                    {"updated": datetime.now().strftime("%Y-%m-%d"), "trading_days": days},
+                    f, ensure_ascii=False, indent=2,
+                )
+        except Exception:
+            pass  # 写不进去不影响内存结果
+
+        return _TRADE_DAYS_CACHE
     except Exception:
         try:
             bs.logout()
         except Exception:
             pass
         return None
+
+
+def _find_next_trade_date(last_date_str: str) -> str | None:
+    """返回 last_date 之后的第一个真实交易日（YYYY-MM-DD）。
+
+    优先用缓存（磁盘 + 内存），缓存过期才从 baostock 重新拉取。
+    失败时返回 None，由调用方回退到占位文案。
+    """
+    cal = _load_trade_calendar()
+    if cal is None:
+        return None
+    target = last_date_str[:10]
+    # 缓存已排序，二分找第一个 > target 的
+    import bisect
+    idx = bisect.bisect_right(cal, target)
+    if idx < len(cal):
+        return cal[idx]
+    return None
 
 
 def _import_pytorch_trainer():
