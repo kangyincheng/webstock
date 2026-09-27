@@ -189,9 +189,10 @@ class TrainingService:
 
     # -------- 主流程 --------
     def run_training(self, params: Dict[str, Any],
-                     progress_cb: Optional[Callable[[Dict[str, Any]], None]] = None
+                     progress_cb: Optional[Callable[[Dict[str, Any]], None]] = None,
+                     task_id: Optional[str] = None,
                      ) -> Dict[str, Any]:
-        task_id = uuid.uuid4().hex[:10]
+        task_id = task_id or uuid.uuid4().hex[:10]
         log = self._wrap_cb(task_id, progress_cb, "init")
         result = {
             "task_id": task_id,

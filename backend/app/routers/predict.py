@@ -61,7 +61,7 @@ async def run_train(params: PredictParams,
 
     def _bg_run():
         try:
-            result = ts.run_training(params.dict(), progress_cb=_real_cb)
+            result = ts.run_training(params.dict(), progress_cb=_real_cb, task_id=task_id)
             with _TASK_LOCK:
                 cur = _TASK_RESULT.get(task_id, {})
                 cur.update(result)
