@@ -75,10 +75,21 @@ function poll_start(task_id) {
   pollTimer = setInterval(async () => {
     try {
       const r = await predictTask(task_id)
-      if (r && r.epoch) progress.epoch = r.epoch
-      if (r && r.total_epochs) progress.total_epochs = r.total_epochs
-      if (typeof r?.train_loss === 'number') progress.train_loss = r.train_loss
-      if (typeof r?.val_loss === 'number') progress.val_loss = r.val_loss
+      if (!r) return
+      // 更新训练进度
+      if (typeof r.epoch === 'number') progress.epoch = r.epoch
+      if (typeof r.total_epochs === 'number') progress.total_epochs = r.total_epochs
+      if (typeof r.train_loss === 'number') progress.train_loss = r.train_loss
+      if (typeof r.val_loss === 'number') progress.val_loss = r.val_loss
+      // 训练完成（status != running）：后台线程已写入完整 result
+      if (r.status && r.status !== 'running') {
+        result.value = r
+        render()
+        poll_stop()
+        ws_close()
+        running.value = false
+        ElMessage.success(r.status === 'success' ? '训练完成' : '训练异常，请查看日志')
+      }
     } catch {}
   }, 1500)
 }
@@ -113,21 +124,18 @@ async function start() {
   logs.value = []
   result.value = null
   progress.epoch = 0
+  progress.total_epochs = 0
   try {
+    // 立即返回 task_id（后台异步训练）
     const r = await predictTrain({ ...form })
     currentTaskId = r.task_id
-    ws_connect(r.task_id)   // 尝试 WebSocket
-    poll_start(r.task_id)   // 轮询兜底（即使 WS 连上也启动，双保险）
-    result.value = r
-    render()
-    ElMessage.success(r.status === 'success' ? '训练完成' : '训练异常，请查看日志')
+    ws_connect(r.task_id)   // 尝试 WebSocket 实时推送
+    poll_start(r.task_id)   // 1.5s 轮询兜底（训练完成时拿完整 result）
+    pushLog('任务已提交，等待训练开始...')
   } catch (e) {
     ElMessage.error(e.message)
     pushLog(String(e.message || e))
-  } finally {
     running.value = false
-    ws_close()
-    poll_stop()
   }
 }
 

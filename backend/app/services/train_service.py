@@ -27,9 +27,9 @@ MODEL_DIR = os.path.join(BASE_DIR, "backend", "models")
 
 
 def _find_next_trade_date(last_date_str: str) -> str | None:
-    """通过 baostock 查询上证指数K线，返回 last_date 之后的第一个真实交易日。
+    """通过 baostock query_trade_dates 获取 last_date 之后的第一个真实交易日。
 
-    会自动 login/logout，调用方无需关心 baostock 会话状态。
+    使用 baostock 官方交易日历接口，比查询 K 线更准确（不会因为休市返回 None）。
     失败时返回 None，由调用方回退。
     """
     from datetime import datetime, timedelta
@@ -41,29 +41,33 @@ def _find_next_trade_date(last_date_str: str) -> str | None:
 
     try:
         d0 = datetime.strptime(last_date_str[:10], "%Y-%m-%d")
-        search_end = (d0 + timedelta(days=30)).strftime("%Y-%m-%d")
+        search_end = (d0 + timedelta(days=60)).strftime("%Y-%m-%d")
 
         lg = bs.login()
         if lg.error_code != "0":
             return None
 
-        rs = bs.query_history_k_data_plus(
-            "sh.000001",          # 上证指数
-            "date",
-            start_date=last_date_str[:10],
-            end_date=search_end,
-            frequency="d",
-        )
+        rs = bs.query_trade_dates(start_date=last_date_str[:10], end_date=search_end)
+        if rs.error_code != "0":
+            bs.logout()
+            return None
 
-        next_date = None
-        while rs.error_code == "0" and rs.next():
-            d = rs.get_row_data()[0]
-            if d > last_date_str[:10]:
-                next_date = d
-                break
+        # 收集所有 is_trading_day == '1' 的交易日
+        trading_days = []
+        while rs.next():
+            row = rs.get_row_data()
+            # fields: ['calendar_date', 'is_trading_day']
+            if len(row) >= 2 and row[1] == "1":
+                trading_days.append(row[0])
 
         bs.logout()
-        return next_date
+
+        # 找第一个 > last_date 的
+        for d in trading_days:
+            if d > last_date_str[:10]:
+                return d
+
+        return None
     except Exception:
         try:
             bs.logout()

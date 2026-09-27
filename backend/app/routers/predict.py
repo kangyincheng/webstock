@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import threading
+import uuid
 from typing import Dict, Any, Optional
 
 from fastapi import APIRouter, Depends, Query, Request
@@ -20,6 +21,7 @@ _ts: Optional[TrainingService] = None
 _ts_lock = threading.Lock()
 
 _TASK_RESULT: Dict[str, Dict[str, Any]] = {}
+_TASK_LOCK = threading.Lock()
 
 
 def get_ts() -> TrainingService:
@@ -39,6 +41,12 @@ def get_ts() -> TrainingService:
 async def run_train(params: PredictParams,
                     request: Request,
                     user: Optional[Dict[str, Any]] = Depends(get_current_user_or_none)):
+    """**立即返回 task_id**，训练在后台线程执行；进度通过 WebSocket /task/{id} 轮询获取。"""
+    task_id = uuid.uuid4().hex[:10]
+
+    with _TASK_LOCK:
+        _TASK_RESULT[task_id] = {"task_id": task_id, "status": "running"}
+
     ts = get_ts()
     loop = asyncio.get_running_loop()
 
@@ -46,25 +54,33 @@ async def run_train(params: PredictParams,
         tid = msg.get("task_id") or ""
         ws_fn = ws_progress_adapter(tid)
         ws_fn(msg)
-        # 轮询兜底：把最新进度也存到 _TASK_RESULT，/task/{id} 接口能取到
         if tid:
-            cur = _TASK_RESULT.setdefault(tid, {"task_id": tid})
-            cur.update(msg)
+            with _TASK_LOCK:
+                cur = _TASK_RESULT.setdefault(tid, {"task_id": tid})
+                cur.update(msg)
 
-    def _run() -> Dict[str, Any]:
-        return ts.run_training(params.dict(), progress_cb=_real_cb)
+    def _bg_run():
+        try:
+            result = ts.run_training(params.dict(), progress_cb=_real_cb)
+            with _TASK_LOCK:
+                cur = _TASK_RESULT.get(task_id, {})
+                cur.update(result)
+                cur["status"] = result.get("status", "success")
+        except Exception as e:
+            with _TASK_LOCK:
+                _TASK_RESULT[task_id].update({"status": "error", "error": str(e)})
 
-    result = await loop.run_in_executor(None, _run)
-    _TASK_RESULT[result.get("task_id", "no-id")] = result
-    return DataResponse(data=result, success=result.get("status") == "success",
-                        message=result.get("error") or "训练完成")
+    loop.run_in_executor(None, _bg_run)
+
+    return DataResponse(data={"task_id": task_id, "status": "running"},
+                        success=True, message="任务已提交，后台执行中")
 
 
 @router.get("/task/{task_id}", response_model=DataResponse)
 async def get_task(task_id: str):
     r = _TASK_RESULT.get(task_id)
     if r is None:
-        return DataResponse(success=False, message="任务不存在或仍在执行中，请连接 /ws/train/{task_id} 接收进度")
+        return DataResponse(success=False, message="任务不存在")
     return DataResponse(data=r)
 
 
