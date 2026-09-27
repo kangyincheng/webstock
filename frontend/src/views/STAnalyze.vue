@@ -179,7 +179,7 @@ onMounted(runLoad)
 .admin-link:hover { text-decoration: underline; }
 
 .count-sub { color: var(--el-text-color-secondary); font-size: 12px; margin-left: auto; }
-.pager-row { display: flex; justify-content: flex-end; margin-top: 8px; }
+.pager-row { display: flex; justify-content: flex-start; margin-top: 8px; }
 
 .filter-bar {
   display: flex; gap: 12px; align-items: center; flex-wrap: wrap;

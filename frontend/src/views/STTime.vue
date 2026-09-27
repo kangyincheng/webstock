@@ -122,7 +122,7 @@ onMounted(() => runLoad())
 </template>
 
 <style scoped>
-.pager-row { display: flex; justify-content: flex-end; margin-top: 12px; }
+.pager-row { display: flex; justify-content: flex-start; margin-top: 12px; }
 
 .filter-bar {
   display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
