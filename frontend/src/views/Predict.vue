@@ -30,6 +30,7 @@ const form = reactive({
   loss_type: 'MSE',
   early_stopping_patience: 15,
   model_name: '',
+  save_model: false,
 })
 
 const running = ref(false)
@@ -314,7 +315,11 @@ onBeforeUnmount(() => { ws_close(); ch?.dispose(); cl?.dispose() })
             <el-form-item label="早停耐心">
               <el-input-number v-model="form.early_stopping_patience" :min="1" :max="100" />
             </el-form-item>
-            <el-form-item label="保存名">
+            <el-form-item label="保存模型">
+              <el-switch v-model="form.save_model" />
+              <span style="margin-left:8px; color:#86909c; font-size:12px">{{ form.save_model ? '勾选则保存，不勾选不保存' : '不保存' }}</span>
+            </el-form-item>
+            <el-form-item label="保存名" v-if="form.save_model">
               <el-input v-model="form.model_name" placeholder="空=自动生成" />
             </el-form-item>
             <el-form-item class="predict-submit-item">
@@ -365,12 +370,18 @@ onBeforeUnmount(() => { ws_close(); ch?.dispose(); cl?.dispose() })
             <el-tag type="info">MAE {{ result.metrics.MAE }}</el-tag>
             <el-tag type="info" style="margin-left:8px">RMSE {{ result.metrics.RMSE }}</el-tag>
             <el-tag type="info" style="margin-left:8px">MAPE {{ result.metrics['MAPE%'] }}%</el-tag>
-            <el-tag v-if="result?.next_day_pred != null" type="warning" style="margin-left:8px">
-              下一交易日 {{ result.next_day_date }} 预测：{{ result.next_day_pred }}
-            </el-tag>
-            <el-tag v-if="result?.save_path" type="success" style="margin-left:8px">
-              已保存 {{ result.save_path.split('/').pop() }}
-            </el-tag>
+          </div>
+          <div v-if="result?.next_day_pred != null" class="predict-summary">
+            <span class="s-blue">最近的交易日：{{ result.last_trade_date || '—' }}</span>
+            <span class="sep">，</span>
+            <span class="s-blue">股票收盘价：{{ result.last_close != null ? result.last_close : '—' }}</span>
+            <span class="sep">，</span>
+            <span class="s-green">下一交易日：{{ result.next_day_date || '—' }}</span>
+            <span class="sep">，</span>
+            <span class="s-green">预测的股价：{{ result.next_day_pred }}</span>
+          </div>
+          <div v-if="result?.save_path" style="margin: 6px 0 4px; color:#86909c; font-size:12px">
+            已保存 {{ result.save_path.split('/').pop() }}
           </div>
           <div ref="chartRef" style="height:360px"></div>
         </div>
@@ -388,6 +399,22 @@ onBeforeUnmount(() => { ws_close(); ch?.dispose(); cl?.dispose() })
 </template>
 
 <style scoped>
+/* ============ 分析结果加粗彩色 ============ */
+.predict-summary {
+  font-size: 15px;
+  font-weight: 700;
+  margin: 10px 0 8px;
+  line-height: 1.8;
+  letter-spacing: 0.2px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 2px;
+}
+.predict-summary .s-blue { color: #1677FF; }
+.predict-summary .s-green { color: #00B42A; }
+.predict-summary .sep { color: #4e5969; font-weight: 700; }
+
 /* ============ 移动端浮动 FAB 启动按钮：仅 ≤768px 显示，桌面隐藏 ============ */
 .predict-fab {
   display: none;  /* 桌面端不显示 */

@@ -82,13 +82,13 @@ def _import_tf_trainer():
     return TFStockTrainer
 
 
-def _df_to_lists(df_loader: StockDataLoader):
+def _df_to_lists(df_loader: StockDataLoader, train_ratio: float = 0.8):
     """返回测试集上的 dates/actual/predicted（对齐长度）。"""
     dates = []
     actual = []
     if df_loader.df is not None:
         n = len(df_loader.df)
-        n_train = int(n * 0.8)
+        n_train = int(n * train_ratio)
         test_df = df_loader.df.iloc[n_train:]
         dates = test_df["date"].astype(str).tolist() if "date" in test_df.columns else []
         target = df_loader.target_col if hasattr(df_loader, "target_col") else "close"
@@ -146,6 +146,8 @@ class TrainingService:
             "dates": [],
             "next_day_pred": None,
             "next_day_date": None,
+            "last_trade_date": None,
+            "last_close": None,
             "error": None,
         }
         try:
@@ -223,7 +225,7 @@ class TrainingService:
             log = self._wrap_cb(task_id, progress_cb, "predict")
             log(msg="[4/4] 测试集推理 & 保存模型 ...")
             pred_scaled = trainer.predict(loader.X_test)
-            dates, actual = _df_to_lists(loader)
+            dates, actual = _df_to_lists(loader, train_ratio=float(params.get("train_ratio", 0.8)))
             # 预测值反归一化回原始价格区间（模型在 MinMax 缩放后的 y 上训练）
             pred_inv = loader.inverse_transform_close(pred_scaled, loader.target_col)
             # 对齐长度：pred 可能比 dates 短 seq_len
@@ -237,9 +239,11 @@ class TrainingService:
             result["actual"] = actual
             result["dates"] = dates
 
-            # 预测下一交易日收盘价：用最近 seq_len 窗口推理
+            # 预测下一交易日收盘价
             next_pred = None
             next_date_label = "下一交易日"
+            last_trade_date = None
+            last_close_val = None
             try:
                 seq_len = loader.X_test.shape[1]
                 last_window = loader.scaled_data[-seq_len:].reshape(1, seq_len, -1)
@@ -247,12 +251,23 @@ class TrainingService:
                 next_inv = loader.inverse_transform_close(next_scaled, loader.target_col)
                 next_pred = round(float(np.asarray(next_inv).ravel()[0]), 4)
                 if loader.df is not None and "date" in loader.df.columns and len(loader.df) > 0:
-                    last_d = str(loader.df["date"].iloc[-1])[:10]
-                    next_date_label = _find_next_trade_date(last_d) or "下一交易日"
+                    # 最近一个真实交易日（数据里最后一行，一定是真实的）
+                    last_d_row = loader.df.iloc[-1]
+                    last_trade_date = str(last_d_row["date"])[:10]
+                    try:
+                        last_close_val = round(float(last_d_row[loader.target_col] if loader.target_col in last_d_row.index
+                                                         else last_d_row.get("close", 0)), 4)
+                    except Exception:
+                        last_close_val = None
+                    # 从 last_trade_date 往后找下一交易日
+                    found = _find_next_trade_date(last_trade_date)
+                    next_date_label = found or "下一交易日"
             except Exception:
                 pass
             result["next_day_pred"] = next_pred
             result["next_day_date"] = next_date_label
+            result["last_trade_date"] = last_trade_date
+            result["last_close"] = last_close_val
 
             # 计算简单指标
             if result["actual"] and result["predicted"]:
@@ -263,16 +278,20 @@ class TrainingService:
                 mape = float(np.mean(np.abs((a - p) / np.where(a == 0, 1e-9, a))) * 100)
                 result["metrics"] = {"MAE": round(mae, 4), "RMSE": round(rmse, 4), "MAPE%": round(mape, 3)}
 
-            model_name = params.get("model_name") or (
-                f"{params.get('stock_code','stk').replace('.','_')}"
-                f"_{framework}_{params.get('model_type','LSTM')}_{int(time.time())}"
-            )
-            try:
-                save_path = trainer.save_model(model_name, loader)
-                result["save_path"] = str(save_path) if save_path else None
-            except Exception as e:
+            # 只有用户显式勾选"保存模型"才保存（避免自动生成垃圾文件）
+            if params.get("save_model"):
+                model_name = params.get("model_name") or (
+                    f"{params.get('stock_code','stk').replace('.','_')}"
+                    f"_{framework}_{params.get('model_type','LSTM')}_{int(time.time())}"
+                )
+                try:
+                    save_path = trainer.save_model(model_name, loader)
+                    result["save_path"] = str(save_path) if save_path else None
+                except Exception as e:
+                    result["save_path"] = None
+                    result["error"] = f"模型保存失败：{e}"
+            else:
                 result["save_path"] = None
-                result["error"] = f"模型保存失败：{e}"
 
             result["status"] = "success"
             log = self._wrap_cb(task_id, progress_cb, "done")
