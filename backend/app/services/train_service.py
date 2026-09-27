@@ -288,14 +288,17 @@ class TrainingService:
             dates, actual = _df_to_lists(loader, train_ratio=float(params.get("train_ratio", 0.8)))
             # 预测值反归一化回原始价格区间（模型在 MinMax 缩放后的 y 上训练）
             pred_inv = loader.inverse_transform_close(pred_scaled, loader.target_col)
-            # 对齐长度：pred 可能比 dates 短 seq_len
+            # pred 比 dates 短 seq_len（时序预测用 seq_len 天预测 seq_len+1 天），
+            # 所以 predicted[i] 对应 dates[i + seq_len]。前面补 None 对齐，
+            # 前端图表上预测线从 seq_len 位置开始延伸到右端。
             pred_list = [round(float(x), 4) for x in pred_inv.ravel().tolist()]
-            k = min(len(dates), len(actual), len(pred_list))
-            if k < len(dates):
-                dates = dates[-k:] if k else dates
-                actual = actual[-k:] if k else actual
+            seq_len = loader.X_test.shape[1]
+            pred_full = [None] * min(seq_len, len(dates)) + pred_list
+            # 若 pred_full 比 dates 长一点点（极少数情形），截一下
+            if len(pred_full) > len(dates):
+                pred_full = pred_full[: len(dates)]
 
-            result["predicted"] = pred_list[-k:] if k else pred_list
+            result["predicted"] = pred_full
             result["actual"] = actual
             result["dates"] = dates
 
@@ -329,14 +332,19 @@ class TrainingService:
             result["last_trade_date"] = last_trade_date
             result["last_close"] = last_close_val
 
-            # 计算简单指标
+            # 计算简单指标（跳过 predicted 里的 None 占位位置）
             if result["actual"] and result["predicted"]:
-                a = np.array(result["actual"])
-                p = np.array(result["predicted"][: len(a)])
-                mae = float(np.mean(np.abs(a - p)))
-                rmse = float(np.sqrt(np.mean((a - p) ** 2)))
-                mape = float(np.mean(np.abs((a - p) / np.where(a == 0, 1e-9, a))) * 100)
-                result["metrics"] = {"MAE": round(mae, 4), "RMSE": round(rmse, 4), "MAPE%": round(mape, 3)}
+                a_all = result["actual"]
+                p_all = result["predicted"][: len(a_all)]
+                # 只算 predicted 有值的位置（跳过前面补的 None）
+                mask = [i for i, v in enumerate(p_all) if v is not None]
+                if mask:
+                    a = np.array([a_all[i] for i in mask])
+                    p = np.array([p_all[i] for i in mask])
+                    mae = float(np.mean(np.abs(a - p)))
+                    rmse = float(np.sqrt(np.mean((a - p) ** 2)))
+                    mape = float(np.mean(np.abs((a - p) / np.where(a == 0, 1e-9, a))) * 100)
+                    result["metrics"] = {"MAE": round(mae, 4), "RMSE": round(rmse, 4), "MAPE%": round(mape, 3)}
 
             # 只有用户显式勾选"保存模型"才保存（避免自动生成垃圾文件）
             if params.get("save_model"):

@@ -158,13 +158,14 @@ function render() {
     ch.setOption({
       tooltip: { trigger: 'axis' },
       legend: { top: 0, data: ['实际', '预测'] },
-      grid: { left: 48, right: 24, top: 32, bottom: 48 },
-      xAxis: { type: 'category', data: xData, axisLabel: { rotate: 40 } },
+      grid: { left: 48, right: 48, top: 32, bottom: 48 },
+      xAxis: { type: 'category', data: xData, boundaryGap: false, axisLabel: { rotate: 40 } },
       yAxis: { type: 'value', scale: true },
       series: [
         { name: '实际', type: 'line', showSymbol: false, data: actData, itemStyle: { color: '#1677FF' } },
         {
-          name: '预测', type: 'line', showSymbol: false, data: predData, itemStyle: { color: '#F5222D' },
+          name: '预测', type: 'line', showSymbol: false, connectNulls: true, data: predData,
+          itemStyle: { color: '#F5222D' }, lineStyle: { width: 2 },
           markPoint: hasNext ? {
             symbol: 'pin', symbolSize: 46,
             data: [{ name: '下一交易日', coord: [r.next_day_date || '下一交易日', r.next_day_pred], value: r.next_day_pred }],
