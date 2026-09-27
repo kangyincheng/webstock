@@ -18,6 +18,29 @@ async function load() {
 
 watch(market, load)
 onMounted(load)
+
+// 列宽映射：短字段按内容最小化，描述列加宽
+const colWidthMap = {
+  "股票代码": 95,
+  "股票名称": 105,
+  "当前股价": 80,
+  "要约价": 80,
+  "安全价": 80,
+  "折价率(%)": 95,
+  "要约溢价(%)": 95,
+  "要约比例(%)": 95,
+  "类型": 75,
+  "进度": 80,
+  "方式": 80,
+  "要约人": 100,
+  "公告日期": 110,
+  "要约开始日期": 120,
+  "要约结束日期": 120,
+  "描述": 360,
+}
+function colWidth(k) {
+  return colWidthMap[k] ?? 110
+}
 </script>
 
 <template>
@@ -31,7 +54,11 @@ onMounted(load)
       </el-radio-group>
       <el-button size="small" :loading="loading" @click="load" style="margin-left:12px">刷新</el-button>
       <el-table :data="rows" stripe border size="small" max-height="65vh" :loading="loading">
-        <el-table-column v-for="(k, i) in Object.keys(rows[0] || {})" :key="i" :prop="k" :label="k" min-width="110" show-overflow-tooltip />
+        <el-table-column
+          v-for="(k, i) in Object.keys(rows[0] || {})"
+          :key="i" :prop="k" :label="k"
+          :width="colWidth(k)"
+          show-overflow-tooltip />
         <template #empty><el-empty description="暂无数据" /></template>
       </el-table>
     </div>
