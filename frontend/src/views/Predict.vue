@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, reactive, ref, shallowRef, watch } from 'vue'
 import * as echarts from 'echarts'
 import { ElMessage } from 'element-plus'
-import { predictTrain, listModels, deleteModel, searchStock } from '../api/index.js'
+import { predictTrain, listModels, deleteModel, searchStock, predictTask } from '../api/index.js'
 
 const form = reactive({
   framework: 'pytorch',
@@ -42,9 +42,50 @@ const chartRef = shallowRef(null)
 const lossRef = shallowRef(null)
 let ch = null, cl = null
 let ws = null
+let pollTimer = null
 let currentTaskId = null
 
-// ---- 股票智能搜索 ----
+function ws_connect(task_id) {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws'
+  const url = `${proto}://${location.host}/ws/train/${task_id}`
+  try {
+    ws = new WebSocket(url)
+    ws.onmessage = (ev) => {
+      const d = JSON.parse(ev.data)
+      applyProgressMsg(d)
+    }
+    ws.onerror = () => { pushLog('[ws] 连接异常，继续用轮询兜底') }
+  } catch (e) { pushLog('[ws] 连接失败，继续用轮询兜底') }
+}
+
+function applyProgressMsg(d) {
+  if (d.epoch) progress.epoch = d.epoch
+  if (d.total_epochs) progress.total_epochs = d.total_epochs
+  if (typeof d.train_loss === 'number') progress.train_loss = d.train_loss
+  if (typeof d.val_loss === 'number') progress.val_loss = d.val_loss
+  if (d.message) pushLog(`[${d.stage || ''}] ${d.message}`)
+}
+
+function ws_close() {
+  try { ws && ws.close() } catch {}
+  ws = null
+}
+
+function poll_start(task_id) {
+  pollTimer = setInterval(async () => {
+    try {
+      const r = await predictTask(task_id)
+      if (r && r.epoch) progress.epoch = r.epoch
+      if (r && r.total_epochs) progress.total_epochs = r.total_epochs
+      if (typeof r?.train_loss === 'number') progress.train_loss = r.train_loss
+      if (typeof r?.val_loss === 'number') progress.val_loss = r.val_loss
+    } catch {}
+  }, 1500)
+}
+
+function poll_stop() {
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
+}
 const stockSuggestions = ref([])
 const searchStocks = async (query) => {
   if (!query || query.trim().length < 1) {
@@ -96,7 +137,8 @@ async function start() {
   try {
     const r = await predictTrain({ ...form })
     currentTaskId = r.task_id
-    ws_connect(r.task_id)
+    ws_connect(r.task_id)   // 尝试 WebSocket
+    poll_start(r.task_id)   // 轮询兜底（即使 WS 连上也启动，双保险）
     result.value = r
     render()
     ElMessage.success(r.status === 'success' ? '训练完成' : '训练异常，请查看日志')
@@ -106,6 +148,7 @@ async function start() {
   } finally {
     running.value = false
     ws_close()
+    poll_stop()
   }
 }
 

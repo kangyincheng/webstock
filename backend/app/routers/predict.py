@@ -46,6 +46,10 @@ async def run_train(params: PredictParams,
         tid = msg.get("task_id") or ""
         ws_fn = ws_progress_adapter(tid)
         ws_fn(msg)
+        # 轮询兜底：把最新进度也存到 _TASK_RESULT，/task/{id} 接口能取到
+        if tid:
+            cur = _TASK_RESULT.setdefault(tid, {"task_id": tid})
+            cur.update(msg)
 
     def _run() -> Dict[str, Any]:
         return ts.run_training(params.dict(), progress_cb=_real_cb)

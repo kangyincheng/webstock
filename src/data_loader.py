@@ -46,14 +46,40 @@ class StockDataLoader:
 
     def fetch_data(self, stock_code, start_date, end_date, frequency="d",
                    adjustflag="2", fields=None, progress_callback=None):
+        from datetime import date, timedelta as _td
+        today_str = date.today().strftime("%Y-%m-%d")
+
         if fields is None:
             fields = "date,code,open,high,low,close,preclose,volume,amount,turn,peTTM,pbMRQ,psTTM,pcfNcfTTM,isST"
 
+        # end_date=None 表示"最新"，用今天做真实查询 + 缓存 key（避免 None 永远命中旧 CSV）
+        real_end = end_date if end_date else today_str
         cache_file = os.path.join(
-            self.data_dir, f"{stock_code}_{start_date}_{end_date}_{frequency}_{adjustflag}.csv"
+            self.data_dir, f"{stock_code}_{start_date}_{real_end}_{frequency}_{adjustflag}.csv"
         )
 
+        CACHE_MAX_DAYS = 3  # 缓存最后日期距今天 ≤3 天则用缓存，否则重下
+        use_cache = False
         if os.path.exists(cache_file):
+            try:
+                # 读 CSV 最后一行的 date 列，判断是否过期
+                import pandas as _pd
+                _head = _pd.read_csv(cache_file, usecols=["date"])
+                if not _head.empty:
+                    last_cache_date = str(_head["date"].iloc[-1])[:10]
+                    last_cache_dt = date.fromisoformat(last_cache_date)
+                    age_days = (date.today() - last_cache_dt).days
+                    if age_days <= CACHE_MAX_DAYS:
+                        use_cache = True
+                        if progress_callback:
+                            progress_callback(f"命中缓存，最后交易日 {last_cache_date} ({age_days} 天前)")
+                    else:
+                        if progress_callback:
+                            progress_callback(f"缓存过旧（最后 {last_cache_date}，距今 {age_days} 天），重新下载…")
+            except Exception:
+                use_cache = False
+
+        if use_cache:
             if progress_callback:
                 progress_callback("正在从缓存加载数据...")
             self.df = pd.read_csv(cache_file)
@@ -66,13 +92,13 @@ class StockDataLoader:
         self.login()
 
         if progress_callback:
-            progress_callback(f"正在下载 {stock_code} 数据 ({start_date} ~ {end_date})...")
+            progress_callback(f"正在下载 {stock_code} 数据 ({start_date} ~ {real_end})...")
 
         rs = _import_baostock().query_history_k_data_plus(
             stock_code,
             fields,
             start_date=start_date,
-            end_date=end_date,
+            end_date=real_end,
             frequency=frequency,
             adjustflag=adjustflag,
         )
