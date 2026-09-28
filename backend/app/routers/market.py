@@ -247,9 +247,25 @@ async def st_time(refresh: bool = Query(False)):
 
     if pre:
         # 有预计算文件 → 返回（无论 refresh 与否都直接用，避免重复扫描）
-        data = {"records": pre["records"], "logs": pre.get("logs", [])}
+        # 但"距可申请天数"必须每次请求重算，因为 today 在变；
+        # JSON 里存的是当时的快照，可能已过时或来自旧版 scan_all。
+        records = pre["records"]
+        from datetime import datetime as _dt
+        today_str = _dt.now().strftime("%Y-%m-%d")
+        for r in records:
+            apply = r.get("可申请摘帽日")
+            if apply:
+                try:
+                    r["距可申请天数"] = (
+                        _dt.strptime(apply, "%Y-%m-%d") - _dt.strptime(today_str, "%Y-%m-%d")
+                    ).days
+                except Exception:
+                    r["距可申请天数"] = None
+            else:
+                r["距可申请天数"] = None
+        data = {"records": records, "logs": pre.get("logs", [])}
         cache.set_json(cache_key, data, ex=3600 * 6)
-        return DataResponse(data=data, message=f"扫描 {len(pre['records'])} 条（预计算）")
+        return DataResponse(data=data, message=f"扫描 {len(pre['records'])} 条（预计算，距可申请天数已实时重算）")
 
     if not refresh:
         # 无文件且用户没要求 refresh → 直接返回空，不扫描
