@@ -52,7 +52,6 @@ function colWidth(k) {
         <el-radio-button label="cn">A股</el-radio-button>
         <el-radio-button label="hk">港股</el-radio-button>
       </el-radio-group>
-      <el-button size="small" :loading="loading" @click="load" style="margin-left:12px">刷新</el-button>
       <el-table :data="rows" stripe border size="small" max-height="65vh" :loading="loading">
         <el-table-column
           v-for="(k, i) in Object.keys(rows[0] || {})"
