@@ -172,8 +172,14 @@ function render() {
         }
       },
       legend: { top: 0, data: ['实际', '预测'] },
-      grid: { left: 56, right: 96, top: 32, bottom: 72, containLabel: true },
-      xAxis: { type: 'category', data: xData, boundaryGap: false, axisLabel: { rotate: 35, fontSize: 11 } },
+      // containLabel: 让 ECharts 自动计算轴标签空间，right=140 给 markPoint pin 充足留白
+      grid: { left: 64, right: 150, top: 36, bottom: 80, containLabel: true },
+      // boundaryGap: true → 首尾分类各留半个柱宽的空隙，最后一个点不再贴右轴
+      xAxis: {
+        type: 'category', data: xData, boundaryGap: true,
+        axisLabel: { rotate: 35, fontSize: 11, interval: 0 },
+        axisTick: { alignWithLabel: true },
+      },
       yAxis: { type: 'value', scale: true },
       series: [
         { name: '实际', type: 'line', showSymbol: false, data: actData, itemStyle: { color: '#1677FF' } },
@@ -181,7 +187,7 @@ function render() {
           name: '预测', type: 'line', showSymbol: false, connectNulls: true, data: predData,
           itemStyle: { color: '#F5222D' }, lineStyle: { width: 2 },
           markPoint: hasNext ? {
-            symbol: 'pin', symbolSize: 44,
+            symbol: 'pin', symbolSize: 38,
             data: [{
               name: '下一交易日',
               coord: [r.next_day_date || '下一交易日', r.next_day_pred],
@@ -189,8 +195,21 @@ function render() {
             }],
             itemStyle: { color: '#FAAD14', borderColor: '#fff', borderWidth: 2 },
             label: {
-              show: true, color: '#fff', fontWeight: 700, fontSize: 12,
+              show: true, color: '#fff', fontWeight: 700, fontSize: 11,
               formatter: (p) => p.value != null ? Number(p.value).toFixed(2) : ''
+            },
+            // 边界钳制：markPoint 贴近画布右/左边缘时自动内移，防止 PIN 图标被裁切
+            labelLayout: (params) => {
+              const { x, width } = params.rect;
+              const chartRight = params.chartRect.x + params.chartRect.width;
+              const margin = 8;
+              let dx = 0;
+              if (x + width > chartRight - margin) {
+                dx = -(x + width - chartRight + margin);
+              } else if (x < params.chartRect.x + margin) {
+                dx = params.chartRect.x + margin - x;
+              }
+              return dx !== 0 ? { dx } : {};
             }
           } : { data: [] },
         },
