@@ -311,8 +311,9 @@ def scan_all() -> List[Dict[str, Any]]:
             if done % 10 == 0 or done == len(st_raw):
                 print(f"  {done}/{len(st_raw)}  有效={len(results)}")
 
-    # 距可申请天数
-    today = datetime.now().strftime("%Y-%m-%d")
+    # 距可申请天数（显式 CST 时区，避免服务器时区漂移导致 today 算成明天/未来）
+    _cst = timezone(timedelta(hours=8))
+    today = datetime.now(_cst).strftime("%Y-%m-%d")
     for r in results:
         try:
             diff = (datetime.strptime(r["可申请摘帽日"], "%Y-%m-%d")

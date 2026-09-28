@@ -228,6 +228,32 @@ def _load_st_time_cache() -> Optional[Dict[str, Any]]:
     return None
 
 
+def _recalc_days(records: list) -> None:
+    """实时重算每条记录的"距可申请天数"（原地修改）。
+
+    为什么必须每次重算？
+      - JSON 文件里存的距可申请天数是快照，可能是几天/几周前生成的
+      - 不能信任 JSON 里的旧值，必须用当前日期 + 可申请摘帽日 做差
+      - 即便是缓存命中，也不能跳过这步（缓存存的是带旧天数的整个 records）
+    """
+    from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+    # 强制用 CST（UTC+8），避免服务器时区漂移导致 today 算成明天/昨天
+    _cst = _tz(_td(hours=8))
+    today_str = _dt.now(_cst).strftime("%Y-%m-%d")
+    for r in records:
+        apply = r.get("可申请摘帽日")
+        if apply and isinstance(apply, str):
+            try:
+                r["距可申请天数"] = (
+                    _dt.strptime(apply, "%Y-%m-%d")
+                    - _dt.strptime(today_str, "%Y-%m-%d")
+                ).days
+            except Exception:
+                r["距可申请天数"] = None
+        else:
+            r["距可申请天数"] = None
+
+
 @router.get("/st/time", response_model=DataResponse)
 async def st_time(refresh: bool = Query(False)):
     """公开：返回当前交易中的 ST 股票列表 + ST 开始日期 + 可申请摘帽日。
@@ -236,33 +262,27 @@ async def st_time(refresh: bool = Query(False)):
       - 默认请求绝不触发实时扫描，只读预计算文件（每周日 0 点由定时脚本刷新）。
       - 只有显式 ?refresh=1 才会实时爬新浪/巨潮（约 30s，建议仅运维用）。
       - 预计算文件不存在时返回空 + 提示，避免前端卡死 30s 超时。
+
+    距可申请天数：
+      - 无论读文件、读缓存还是实时扫描，都会实时重算，不信任任何预存值。
     """
     cache = CacheLayer.instance()
     cache_key = "webstock:st-time:refresh=" + str(refresh)
     cached = cache.get_json(cache_key)
+
     if cached is not None:
-        return DataResponse(data=cached, cache_hit=True, message="使用缓存")
+        # 缓存命中 → 也必须重算距可申请天数（缓存里存的是旧快照）
+        records = cached.get("records") or []
+        _recalc_days(records)
+        cached["records"] = records
+        return DataResponse(data=cached, cache_hit=True, message="使用缓存（距可申请天数已实时重算）")
 
     pre = _load_st_time_cache()
 
     if pre:
-        # 有预计算文件 → 返回（无论 refresh 与否都直接用，避免重复扫描）
-        # 但"距可申请天数"必须每次请求重算，因为 today 在变；
-        # JSON 里存的是当时的快照，可能已过时或来自旧版 scan_all。
+        # 有预计算文件 → 加载 + 重算 + 返回
         records = pre["records"]
-        from datetime import datetime as _dt
-        today_str = _dt.now().strftime("%Y-%m-%d")
-        for r in records:
-            apply = r.get("可申请摘帽日")
-            if apply:
-                try:
-                    r["距可申请天数"] = (
-                        _dt.strptime(apply, "%Y-%m-%d") - _dt.strptime(today_str, "%Y-%m-%d")
-                    ).days
-                except Exception:
-                    r["距可申请天数"] = None
-            else:
-                r["距可申请天数"] = None
+        _recalc_days(records)
         data = {"records": records, "logs": pre.get("logs", [])}
         cache.set_json(cache_key, data, ex=3600 * 6)
         return DataResponse(data=data, message=f"扫描 {len(pre['records'])} 条（预计算，距可申请天数已实时重算）")
@@ -291,7 +311,8 @@ async def st_time(refresh: bool = Query(False)):
             data={"records": [], "logs": [f"实时扫描失败: {exc}"]},
             message="实时扫描失败")
 
-    # 扫描成功 → 写入预计算文件 + 返回
+    # 实时扫描结果 → 重算天数 + 写入预计算文件
+    _recalc_days(records)
     try:
         os.makedirs(os.path.dirname(_ST_TIME_FILE), exist_ok=True)
         import json as _json
