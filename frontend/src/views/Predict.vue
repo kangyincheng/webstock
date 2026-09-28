@@ -156,10 +156,24 @@ function render() {
     const actData = hasNext ? [...actBase, null] : actBase
     const predData = hasNext ? [...predBase, r.next_day_pred] : predBase
     ch.setOption({
-      tooltip: { trigger: 'axis' },
+      tooltip: {
+        trigger: 'axis',
+        formatter: (params) => {
+          const date = params[0]?.axisValue || ''
+          let html = `<div style="font-weight:600;margin-bottom:4px">${date}</div>`
+          params.forEach(p => {
+            const val = p.value == null ? '—' : (typeof p.value === 'number' ? p.value.toFixed(2) : p.value)
+            html += `<div style="display:flex;align-items:center;gap:6px">
+              <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${p.color}"></span>
+              <span>${p.seriesName}:</span><span style="font-weight:600">${val}</span>
+            </div>`
+          })
+          return html
+        }
+      },
       legend: { top: 0, data: ['实际', '预测'] },
-      grid: { left: 48, right: 48, top: 32, bottom: 48 },
-      xAxis: { type: 'category', data: xData, boundaryGap: false, axisLabel: { rotate: 40 } },
+      grid: { left: 56, right: 96, top: 32, bottom: 72, containLabel: true },
+      xAxis: { type: 'category', data: xData, boundaryGap: false, axisLabel: { rotate: 35, fontSize: 11 } },
       yAxis: { type: 'value', scale: true },
       series: [
         { name: '实际', type: 'line', showSymbol: false, data: actData, itemStyle: { color: '#1677FF' } },
@@ -167,9 +181,17 @@ function render() {
           name: '预测', type: 'line', showSymbol: false, connectNulls: true, data: predData,
           itemStyle: { color: '#F5222D' }, lineStyle: { width: 2 },
           markPoint: hasNext ? {
-            symbol: 'pin', symbolSize: 46,
-            data: [{ name: '下一交易日', coord: [r.next_day_date || '下一交易日', r.next_day_pred], value: r.next_day_pred }],
-            itemStyle: { color: '#FAAD14' }, label: { color: '#fff', formatter: '{c}' }
+            symbol: 'pin', symbolSize: 44,
+            data: [{
+              name: '下一交易日',
+              coord: [r.next_day_date || '下一交易日', r.next_day_pred],
+              value: r.next_day_pred
+            }],
+            itemStyle: { color: '#FAAD14', borderColor: '#fff', borderWidth: 2 },
+            label: {
+              show: true, color: '#fff', fontWeight: 700, fontSize: 12,
+              formatter: (p) => p.value != null ? Number(p.value).toFixed(2) : ''
+            }
           } : { data: [] },
         },
       ],
