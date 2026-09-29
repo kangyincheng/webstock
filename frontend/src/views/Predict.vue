@@ -173,11 +173,16 @@ function render() {
       },
       legend: { top: 0, data: ['实际', '预测'] },
       // containLabel: 让 ECharts 自动计算轴标签空间，right=140 给 markPoint pin 充足留白
-      grid: { left: 64, right: 150, top: 36, bottom: 80, containLabel: true },
+      grid: { left: 64, right: 150, top: 36, bottom: 44, containLabel: true },
       // boundaryGap: true → 首尾分类各留半个柱宽的空隙，最后一个点不再贴右轴
       xAxis: {
         type: 'category', data: xData, boundaryGap: true,
-        axisLabel: { rotate: 35, fontSize: 11, interval: 0 },
+        axisLabel: {
+          rotate: 0, fontSize: 11,
+          // 动态间隔：总条数 ÷ 7，保证横轴大约 7 个标签均匀分布
+          interval: Math.max(0, Math.floor(xData.length / 7) - 1),
+          hideOverlap: true,
+        },
         axisTick: { alignWithLabel: true },
       },
       yAxis: { type: 'value', scale: true },
