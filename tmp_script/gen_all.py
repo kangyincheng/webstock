@@ -7,7 +7,16 @@ import requests
 PROXY = {"http": os.environ.get("HTTP_PROXY"), "https": os.environ.get("HTTPS_PROXY")}
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 N_VALUES = [5, 10, 15, 20]
-OUT = "/workspace/backend/data/st_scan_results.json"
+# 相对路径：不管在 sandbox / 生产 / 容器里都能解析到正确位置
+# gen_all.py -> tmp_script/ -> workspace 根 -> backend/data/
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_ROOT = os.path.dirname(_HERE)
+# 兼容两种部署：容器内 /app 作为 _ROOT，或主机 /var/www/webstock 作为 _ROOT
+_candidates = [
+    os.path.join(_ROOT, "backend", "data", "st_scan_results.json"),
+    os.path.join(_ROOT, "data", "st_scan_results.json"),
+]
+OUT = next((p for p in _candidates if os.path.isdir(os.path.dirname(os.path.dirname(p)))), _candidates[0])
 os.makedirs(os.path.dirname(OUT), exist_ok=True)
 
 # ============== Part 1: 巨潮抓摘帽公告 ==============
