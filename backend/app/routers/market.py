@@ -229,12 +229,16 @@ def _load_st_time_cache() -> Optional[Dict[str, Any]]:
 
 
 def _recalc_days(records: list) -> None:
-    """实时重算每条记录的"距可申请天数"（原地修改）。
+    """实时重算每条记录的"距可申请天数" + 按绝对值升序排序（从近到远）。
 
     为什么必须每次重算？
       - JSON 文件里存的距可申请天数是快照，可能是几天/几周前生成的
       - 不能信任 JSON 里的旧值，必须用当前日期 + 可申请摘帽日 做差
       - 即便是缓存命中，也不能跳过这步（缓存存的是带旧天数的整个 records）
+
+    排序规则：
+      - 有距可申请天数的在前，按绝对值升序（距可申请日越近越靠前，不管正负）
+      - 无距可申请天数的（None）排最后
     """
     from datetime import datetime as _dt, timezone as _tz, timedelta as _td
     # 强制用 CST（UTC+8），避免服务器时区漂移导致 today 算成明天/昨天
@@ -252,6 +256,10 @@ def _recalc_days(records: list) -> None:
                 r["距可申请天数"] = None
         else:
             r["距可申请天数"] = None
+
+    # 排序：有天数的在前 → 按绝对值升序（从近到远）；None 排最后
+    records.sort(key=lambda x: x.get("距可申请天数") is not None, reverse=True)
+    records.sort(key=lambda x: abs(x["距可申请天数"]) if x.get("距可申请天数") is not None else 99999)
 
 
 @router.get("/st/time", response_model=DataResponse)
