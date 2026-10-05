@@ -21,7 +21,11 @@ function cmpFn(a, b, prop) {
   if (xNil) return 1
   if (yNil) return -1
   const nx = Number(x), ny = Number(y)
-  if (!isNaN(nx) && !isNaN(ny)) return nx - ny
+  if (!isNaN(nx) && !isNaN(ny)) {
+    // 距可申请天数：按绝对值比较（从近到远）
+    if (prop === '距可申请天数') return Math.abs(nx) - Math.abs(ny)
+    return nx - ny
+  }
   return String(x).localeCompare(String(y), 'zh-CN', { numeric: true })
 }
 
