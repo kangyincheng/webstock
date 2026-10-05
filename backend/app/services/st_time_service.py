@@ -26,6 +26,8 @@ UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 
 # ST 开始公告的标题里应包含这些词，表示"第一次被实施"
 _START_KEYWORDS = ["实施其他风险警示", "实施退市风险警示"]
+# 用于搜索 ST 开始事件的关键词（巨潮会返回包含这些字的所有公告，后面 _matches_keywords 再精筛）
+_START_SEARCH_KEYWORDS = ["实施其他风险警示", "实施退市风险警示"]
 # 需要排除的后续公告关键词（仅当标题**没有**已实施的被动句式时才检查）
 _EXCLUDE_KEYWORDS = [
     # 专门的风险提示公告（不是正式实施公告，标题以"风险提示公告"结尾）
@@ -195,9 +197,10 @@ def find_st_start_date(pure_code: str) -> Optional[str]:
                         events.append((ts, kind))
                 time.sleep(0.15)
 
-    # ★ ST 开始：包含"将被实施"的提示性公告 + "被实施"的正式公告
-    _collect_events(["实施其他风险警示", "实施退市风险警示",
-                     "将被实施其他风险警示", "将被实施退市风险警示"], "start")
+    # ★ ST 开始：只搜正式实施关键词（提示性"将被实施"会被 _matches_keywords 自动排除）
+    # 巨潮搜 "实施其他风险警示" 会把所有包含这几个字的公告列出来（含提示性、进展、正式），
+    # 然后 _matches_keywords 用排除词 + 被动句式精筛
+    _collect_events(_START_SEARCH_KEYWORDS, "start")
     _collect_events(["撤销其他风险警示", "撤销退市风险警示", "摘帽"], "resolve")
 
     if not events:
@@ -228,27 +231,40 @@ def find_st_start_date(pure_code: str) -> Optional[str]:
 
 
 def _matches_keywords(title: str, kw: str) -> bool:
-    """粗筛：ST 开始 / 撤销公告的匹配。"""
+    """粗筛：ST 开始 / 撤销公告的匹配。
+
+    核心原则（2026-10-05 修复）：**排除词始终优先**，不能被被动句式绕过。
+    之前的 bug：标题 "关于公司股票被实施其他风险警示相关事项的进展公告"
+    同时命中"被实施"（被动句式）和"进展公告"（排除词），但被动句式
+    直接 return True 跳过了排除词 → 把进展公告当成了真 ST 开始日。
+    """
     if not title:
         return False
-    if kw.startswith("实施"):
-        # ST 开始公告
+    # 判断 kw 属于 start 还是 resolve —— 显式集合，不依赖 startswith
+    kw_is_start = kw in _START_SEARCH_KEYWORDS
+
+    if kw_is_start:
+        # 1) 标题要包含至少一个 ST 开始关键词
         if not any(k in title for k in _START_KEYWORDS):
             return False
-        # 如果标题有"已实施"的被动句式 → 直接算真实施公告（忽略排除词）
-        # 因为后面的"暨可能被实施"只是后续风险提示
-        if _ACTUAL_IMPLEMENTED_RE.search(title):
-            return True
-        # 没有被动句式的，严格检查排除词（风险提示公告等）
+
+        # 2) ★ 排除词**始终优先** —— 进展公告 / 提示性公告 / 叠加 / 后续操作一律排除
+        #    不管有没有被动句式，进展公告就是进展公告（不是 ST 开始宣告）
         for excl in _EXCLUDE_KEYWORDS:
             if excl in title:
                 return False
+
+        # 3) 排除词过了之后，检查是否只剩提示性措辞（"将被实施/可能被实施"）
+        #    此时标题没有任何排除词，但也没有真的实施 —— 跳过
+        _HINT_ONLY_RE = re.compile(r"(?:可能|将|拟|筹划)\s*(?:被)?实施")
+        if _HINT_ONLY_RE.search(title) and not _ACTUAL_IMPLEMENTED_RE.search(title):
+            return False
+
         return True
     else:
-        # 撤销 / 摘帽公告 — 用正则放宽
+        # 撤销 / 摘帽公告
         if not (_RESOLVE_RE.search(title) or "摘帽" in title):
             return False
-        # 排除"部分撤销"、"继续被实施"等
         for excl in _RESOLVE_EXCLUDE:
             if excl in title:
                 return False
