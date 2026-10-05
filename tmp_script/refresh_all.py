@@ -34,10 +34,16 @@ LOG_TZ = timezone(timedelta(hours=8))
 PID_FILE = "/tmp/webstock_st_refresh.pid"
 
 SCHEDULE = {
-    0: "st_analyze",    # 周一
-    1: "st_overview",   # 周二
-    2: "st_time",       # 周三
+    0: ["st_analyze", "tender_offer"],     # 周一
+    1: ["st_overview", "tender_offer"],    # 周二
+    2: ["st_time", "tender_offer"],        # 周三
+    3: ["tender_offer"],                   # 周四
+    4: ["tender_offer"],                   # 周五
 }
+
+# tender_offer 的具体触发时间（每个交易日）
+TENDER_TRIGGER_HOUR = 1
+TENDER_TRIGGER_MIN = 30
 
 
 def log(msg):
@@ -77,6 +83,34 @@ def task_st_time():
         return False
 
 
+def task_tender_offer():
+    """每个交易日 01:30：刷新要约收购（A 股 + 港股）"""
+    log(">> [交易日] 刷新要约收购（A 股 + 港股）")
+    try:
+        from backend.app.services.market_service import MarketServices
+        ms = MarketServices()
+        a_rows = ms.tender_offer("cn")
+        h_rows = ms.tender_offer("hk")
+        out_path = os.path.join(TASK_ROOT, "backend", "data", "tender_results.json")
+        os.makedirs(os.path.dirname(out_path), exist_ok=True)
+        now_str = datetime.now(LOG_TZ).strftime("%Y-%m-%d %H:%M:%S")
+        payload = {
+            "cn": {"rows": a_rows},
+            "hk": {"rows": h_rows},
+            "updated_at": now_str,
+        }
+        tmp = out_path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, out_path)
+        log("  OK A股=%d 条 港股=%d 条 -> %s" % (len(a_rows), len(h_rows), out_path))
+        return True
+    except Exception as e:
+        log("  FAIL tender_offer: %s" % e)
+        import traceback; traceback.print_exc()
+        return False
+
+
 def _run_python_script(path, label="script"):
     if not os.path.isfile(path):
         log("  SKIP %s 不存在" % path)
@@ -103,30 +137,43 @@ TASK_REGISTRY = {
     "st_analyze": task_st_analyze,
     "st_overview": task_st_overview,
     "st_time": task_st_time,
-    "all": lambda: all([task_st_analyze(), task_st_overview(), task_st_time()]),
+    "tender_offer": task_tender_offer,
+    "all": lambda: all([task_st_analyze(), task_st_overview(), task_st_time(), task_tender_offer()]),
 }
 
 
 # ==================== 守护模式 ====================
 
-def _next_trigger(now):
-    """找到下一个调度触发点，返回 (触发时间, 任务名)"""
+def _next_triggers(now):
+    """找到下一批要触发的任务，返回 [(fire_at, task_name), ...]。
+
+    调度规则：
+      - ST 任务（st_analyze/st_overview/st_time）: 周一/二/三 00:00 + 随机延迟 0~60min
+      - Tender 任务（tender_offer）: 周一~周五 01:30
+    """
     candidates = []
     for day_offset in range(0, 8):
         target_date = (now + timedelta(days=day_offset)).replace(hour=0, minute=0, second=0, microsecond=0)
         weekday = target_date.weekday()
         if weekday in SCHEDULE:
-            delay = random.randint(0, 3600)
-            fire_at = target_date + timedelta(seconds=delay)
-            if fire_at > now:
-                candidates.append((fire_at, SCHEDULE[weekday]))
+            for task_name in SCHEDULE[weekday]:
+                if task_name == "tender_offer":
+                    # tender 固定 01:30
+                    fire_at = target_date.replace(hour=TENDER_TRIGGER_HOUR, minute=TENDER_TRIGGER_MIN)
+                else:
+                    # ST 任务 00:00 + 随机延迟
+                    delay = random.randint(0, 3600)
+                    fire_at = target_date + timedelta(seconds=delay)
+                if fire_at > now:
+                    candidates.append((fire_at, task_name))
     candidates.sort(key=lambda x: x[0])
-    return candidates[0]
+    # 返回前一个（最小的那个）
+    return candidates[0] if candidates else None
 
 
 def daemon_loop():
     log("!! 守护模式启动")
-    log("  调度：周一->摘帽  周二->摘帽  周三->当前ST")
+    log("  调度：周一->摘帽+Tender  周二->摘帽+Tender  周三->当前ST+Tender  周四五->Tender(01:30)")
     with open(PID_FILE, "w") as f:
         f.write(str(os.getpid()))
 
@@ -139,7 +186,12 @@ def daemon_loop():
 
     while True:
         now = datetime.now()
-        fire_at, task_name = _next_trigger(now)
+        item = _next_triggers(now)
+        if item is None:
+            log("!! 没有找到下一个触发点（SCHEDULE 为空？），60s 后重试")
+            time.sleep(60)
+            continue
+        fire_at, task_name = item
         wait_sec = (fire_at - now).total_seconds()
         log("下次触发: %s  任务=[%s]  等待~%.1fh" % (
             fire_at.strftime("%Y-%m-%d %H:%M:%S"), task_name, wait_sec / 3600))
