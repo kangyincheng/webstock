@@ -143,7 +143,11 @@ def fetch_limit_pools_ak(trade_dates: List[str], progress_cb=None) -> Dict[str, 
                     if key:
                         counts[key]["涨停"] += 1
         except Exception:
-            pass  # 非交易日或接口限频
+            # 非交易日或接口限频 → 稍长一点 sleep 退避
+            time.sleep(0.6)
+            pass
+
+        time.sleep(0.15)  # 两个池子之间隔开
 
         # 跌停池
         try:
@@ -154,10 +158,11 @@ def fetch_limit_pools_ak(trade_dates: List[str], progress_cb=None) -> Dict[str, 
                     if key:
                         counts[key]["跌停"] += 1
         except Exception:
+            time.sleep(0.6)
             pass
 
-        # 轻轻 sleep 避免被限频
-        time.sleep(0.15)
+        # 每天扫描完成后 sleep，防东方财富 IP 封禁（每周只扫一次更保险）
+        time.sleep(0.3)
 
     return counts
 

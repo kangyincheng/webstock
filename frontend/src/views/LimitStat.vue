@@ -9,6 +9,7 @@ const updatedAt = ref('')
 const scannedDays = ref(90)
 const total = ref(0)
 const filterKeyword = ref('')
+const weeklyHint = ref('')
 
 // 表单参数
 const nDays = ref(90)
@@ -16,6 +17,7 @@ const sortBy = ref('涨停次数')
 
 async function loadData(refresh = false) {
   loading.value = true
+  weeklyHint.value = ''
   try {
     const params = { n_days: nDays.value }
     if (refresh) params.refresh = 1
@@ -24,8 +26,11 @@ async function loadData(refresh = false) {
     total.value = d.total || rows.value.length
     updatedAt.value = d.updated_at || ''
     scannedDays.value = d.scanned_days || nDays.value
+    if (d.weekly_update_hint) weeklyHint.value = d.weekly_update_hint
   } catch (e) {
-    ElMessage.error('加载失败：' + e.message)
+    // 后端 503：数据文件未就绪；429：手动刷新冷却中
+    const msg = e?.response?.data?.detail || e.message || '未知错误'
+    ElMessage.error('加载失败：' + msg)
   } finally {
     loading.value = false
   }
@@ -33,9 +38,14 @@ async function loadData(refresh = false) {
 
 function onRefresh() {
   ElMessageBox.confirm(
-    `强制实时扫描最近 ${nDays.value} 个交易日的涨跌停数据？此操作需要 2~10 分钟。`,
-    '实时扫描',
-    { type: 'warning', confirmButtonText: '开始扫描', cancelButtonText: '取消' }
+    `⚠️ 此操作将触发后端扫描最近 ${nDays.value} 个交易日的涨停+跌停池（约 180+ 次东方财富 API 调用，耗时 2~10 分钟）。\n\n建议每周一只走一次定时刷新即可，频繁扫描会被封 IP。\n\n确定现在就要手动扫描吗？`,
+    '手动刷新（谨慎）',
+    {
+      type: 'error',
+      confirmButtonText: '我确定要扫',
+      cancelButtonText: '算了，等定时任务',
+      confirmButtonClass: 'el-button--danger'
+    }
   ).then(() => loadData(true)).catch(() => {})
 }
 
@@ -109,17 +119,25 @@ onMounted(() => loadData())
     <h2 class="page-title">📊 历史涨跌停统计</h2>
     <p class="page-desc">
       数据源：akshare（东方财富） · 默认扫描最近 {{ scannedDays }} 个交易日
-      <template v-if="updatedAt"> · 预计算更新：{{ updatedAt }}</template>
+      <template v-if="updatedAt"> · 数据快照：{{ updatedAt }}</template>
       · 涨跌停幅度按板块判定（主板 10% / 科创·创业 20% / 北交所 30% / ST 5%）
     </p>
+    <el-alert
+      v-if="weeklyHint"
+      :title="weeklyHint"
+      type="info"
+      :closable="false"
+      show-icon
+      style="margin-bottom: 12px"
+    />
 
     <div class="page-toolbar">
       <el-form :inline="true" @submit.prevent>
         <el-form-item label="扫描天数">
-          <el-select v-model="nDays" style="width: 120px">
+          <el-select v-model="nDays" style="width: 120px" disabled>
             <el-option label="30 天（近 1.5 月）" :value="30" />
             <el-option label="60 天（近 3 月）" :value="60" />
-            <el-option label="90 天（近 4.5 月）" :value="90" />
+            <el-option label="90 天（近 4.5 月，推荐）" :value="90" />
             <el-option label="120 天（近 6 月）" :value="120" />
             <el-option label="250 天（近 1 年）" :value="250" />
           </el-select>
@@ -128,8 +146,10 @@ onMounted(() => loadData())
           <el-input v-model="filterKeyword" placeholder="名称/代码" clearable style="width: 180px" />
         </el-form-item>
         <el-form-item>
-          <el-button type="primary" :loading="loading" @click="loadData(false)">查询</el-button>
-          <el-button :loading="loading" @click="onRefresh">🔄 实时扫描</el-button>
+          <el-button type="primary" :loading="loading" @click="loadData(false)">查询快照</el-button>
+          <el-tooltip content="⚠️ 180+ 次东方财富 API 调用，12h 内限一次，避免封 IP" placement="top">
+            <el-button :loading="loading" @click="onRefresh">🔄 手动刷新（谨慎）</el-button>
+          </el-tooltip>
         </el-form-item>
       </el-form>
       <div class="page-toolbar-right">

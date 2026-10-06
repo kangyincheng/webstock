@@ -1,22 +1,27 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""ST 股三任务定时刷新脚本（Python 3.6 兼容版）
+"""WebStock 定时刷新脚本（Python 3.6 兼容版）
 
 调度计划：
   周一 00:00  随机延迟 0~60min -> gen_all.py  生成摘帽数据（ST股统计分析）
+  周一 00:00  随机延迟 0~90min -> limit_stat  历史涨跌停统计（本周一次）
   周二 00:00  随机延迟 0~60min -> gen_all.py  生成摘帽数据（ST股个股表现）
   周三 00:00  随机延迟 0~60min -> scan_all() 生成当前 ST 股（ST股摘帽时间）
+  周一~周五 01:30               -> tender_offer 要约收购
 
 运行方式：
   python3 refresh_all.py --daemon              # 守护模式
+  python3 refresh_all.py --run limit_stat      # 手动：只跑涨跌停统计
   python3 refresh_all.py --run st_analyze      # 手动：只跑摘帽
   python3 refresh_all.py --run st_time         # 手动：只跑当前 ST
   python3 refresh_all.py --run all             # 手动：跑全部
 
   cron 版（如需）：
-    0 0 * * 1  cd /var/www/webstock && python3 tmp_script/refresh_all.py --run st_analyze >> refresh.log 2>&1
-    0 0 * * 2  cd /var/www/webstock && python3 tmp_script/refresh_all.py --run st_overview >> refresh.log 2>&1
-    0 0 * * 3  cd /var/www/webstock && python3 tmp_script/refresh_all.py --run st_time    >> refresh.log 2>&1
+    0 0 * * 1  cd /var/www/webstock && python3 tmp_script/refresh_all.py --run st_analyze   >> refresh.log 2>&1
+    0 0 * * 1  cd /var/www/webstock && python3 tmp_script/refresh_all.py --run limit_stat   >> refresh.log 2>&1
+    0 0 * * 2  cd /var/www/webstock && python3 tmp_script/refresh_all.py --run st_overview  >> refresh.log 2>&1
+    0 0 * * 3  cd /var/www/webstock && python3 tmp_script/refresh_all.py --run st_time     >> refresh.log 2>&1
+    30 1 * * 1-5 cd /var/www/webstock && python3 tmp_script/refresh_all.py --run tender_offer >> refresh.log 2>&1
 """
 import argparse
 import json
@@ -34,11 +39,11 @@ LOG_TZ = timezone(timedelta(hours=8))
 PID_FILE = "/tmp/webstock_st_refresh.pid"
 
 SCHEDULE = {
-    0: ["st_analyze", "tender_offer"],     # 周一
-    1: ["st_overview", "tender_offer"],    # 周二
-    2: ["st_time", "tender_offer"],        # 周三
-    3: ["tender_offer"],                   # 周四
-    4: ["tender_offer"],                   # 周五
+    0: ["st_analyze", "limit_stat", "tender_offer"],  # 周一（含涨跌停统计）
+    1: ["st_overview", "tender_offer"],               # 周二
+    2: ["st_time", "tender_offer"],                    # 周三
+    3: ["tender_offer"],                               # 周四
+    4: ["tender_offer"],                               # 周五
 }
 
 # tender_offer 的具体触发时间（每个交易日）
@@ -79,6 +84,25 @@ def task_st_time():
         return True
     except Exception as e:
         log("  FAIL scan_all: %s" % e)
+        import traceback; traceback.print_exc()
+        return False
+
+
+def task_limit_stat():
+    """周一：历史涨跌停统计（90 个交易日，每周一次避免封 IP）"""
+    log(">> [周一] 刷新历史涨跌停统计（limit_stat 90d）")
+    try:
+        from backend.app.services import limit_stat_service
+
+        def prog(msg):
+            log("  " + msg)
+
+        records = limit_stat_service.scan(n_days=90, progress_cb=prog)
+        path = limit_stat_service.save_results(records, n_days=90)
+        log("  OK %d 条记录 -> %s" % (len(records), path))
+        return True
+    except Exception as e:
+        log("  FAIL limit_stat: %s" % e)
         import traceback; traceback.print_exc()
         return False
 
@@ -137,8 +161,12 @@ TASK_REGISTRY = {
     "st_analyze": task_st_analyze,
     "st_overview": task_st_overview,
     "st_time": task_st_time,
+    "limit_stat": task_limit_stat,
     "tender_offer": task_tender_offer,
-    "all": lambda: all([task_st_analyze(), task_st_overview(), task_st_time(), task_tender_offer()]),
+    "all": lambda: all([
+        task_st_analyze(), task_st_overview(), task_st_time(),
+        task_limit_stat(), task_tender_offer(),
+    ]),
 }
 
 
@@ -173,7 +201,7 @@ def _next_triggers(now):
 
 def daemon_loop():
     log("!! 守护模式启动")
-    log("  调度：周一->摘帽+Tender  周二->摘帽+Tender  周三->当前ST+Tender  周四五->Tender(01:30)")
+    log("  调度：周一->摘帽+涨跌停统计+Tender  周二->摘帽+Tender  周三->当前ST+Tender  周四五->Tender(01:30)")
     with open(PID_FILE, "w") as f:
         f.write(str(os.getpid()))
 
