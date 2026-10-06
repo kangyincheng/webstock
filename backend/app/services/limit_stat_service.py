@@ -215,34 +215,109 @@ def fetch_basic_info_ak() -> pd.DataFrame:
 # 主流程
 # ============================================================
 
-def scan(n_days: int = 90,
-         data_sources: Optional[List[str]] = None,
+def scan(n_days: Optional[int] = None,
+         mode: str = "incremental",
+         history_years: float = 3.0,
          progress_cb=None) -> List[Dict[str, Any]]:
-    """执行完整的历史涨跌停统计。
+    """执行历史涨跌停统计。
 
     Args:
-        n_days: 往前扫描多少个交易日（默认 90 ≈ 4.5 个月）
-        data_sources: 备用列表 ["baostock", "tushare"]，默认用 akshare 主力
-        progress_cb: 进度回调函数 progress_cb(msg: str)
+        n_days: 已废弃，保留兼容。用 history_years 控制时间窗口。
+        mode: "incremental"（默认，推荐）或 "full"
+            incremental: 读已有 JSON，只扫上次扫描之后的新交易日，合并
+            full:        重新扫描最近 history_years 年的全部交易日（覆盖已有）
+        history_years: 全量模式下往前扫多少年（默认 3.0 年 ≈ 766 交易日）
+        progress_cb: 进度回调
 
     Returns:
         按涨停次数降序排列的记录列表
     """
-    if data_sources is None:
-        data_sources = ["baostock", "tushare"]
+    if mode == "full":
+        # ---- 全量模式：忽略已有 JSON，从头扫 history_years 年 ----
+        n_trade = int(history_years * 255)  # 年 × 255 交易日/年
+        if progress_cb:
+            progress_cb(f"【全量模式】重新扫描最近 {history_years} 年 ≈ {n_trade} 个交易日")
+        return _do_scan_and_merge(None, n_trade, progress_cb)
 
-    # ---- Step 1: 扫描涨跌停池（同时拿基本信息）----
-    trade_dates = _iter_trade_dates(n_days)
+    # ---- 增量模式：读已有 JSON，只扫新交易日 ----
+    existing = load_results()
+    if existing is None or not existing.get("scanned_dates"):
+        # 没有历史数据 → 降级为全量首次
+        if progress_cb:
+            progress_cb("未找到历史数据，首次全量扫描")
+        n_trade = int(history_years * 255)
+        return _do_scan_and_merge(None, n_trade, progress_cb)
+
+    # 已有 scanned_dates → 只扫之后的
+    scanned_dates = set(existing["scanned_dates"])
+    all_trade_dates = _iter_trade_dates(int(history_years * 255))
+    new_dates = [d for d in all_trade_dates if d not in scanned_dates]
+
+    if not new_dates:
+        if progress_cb:
+            progress_cb("已是最新，没有新交易日需要扫描")
+        return existing.get("records", [])
+
+    if progress_cb:
+        progress_cb(f"【增量模式】已有 {len(scanned_dates)} 个交易日，新增 {len(new_dates)} 个待扫描")
+
+    return _do_scan_and_merge(existing, len(new_dates), progress_cb,
+                              override_dates=new_dates)
+
+
+def _do_scan_and_merge(existing: Optional[Dict[str, Any]],
+                      n_trade: int,
+                      progress_cb,
+                      override_dates: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+    """实际扫描 + 合并已有结果。"""
+    # ---- Step 1: 确定交易日列表 ----
+    if override_dates:
+        trade_dates = override_dates
+    else:
+        trade_dates = _iter_trade_dates(n_trade)
     if progress_cb:
         progress_cb(f"准备扫描 {len(trade_dates)} 个交易日")
 
-    counts, info_map = fetch_limit_pools_ak(trade_dates, progress_cb=progress_cb)
+    # ---- Step 2: 扫涨停池 + 跌停池 ----
+    new_counts, new_info = fetch_limit_pools_ak(trade_dates, progress_cb=progress_cb)
     if progress_cb:
-        progress_cb(f"涨跌停池扫描完成：{len(counts)} 只股票有记录，{len(info_map)} 只有基本信息")
+        progress_cb(f"本次扫描完成：{len(new_counts)} 只股票有记录")
 
-    # ---- Step 2: 尝试用 stock_zh_a_spot_em 补充更多字段（PB、总股本等）----
-    # 这个接口经常连不上（sandbox 代理 + production 容器无外网），
-    # 连不上也不影响，核心字段都在 info_map 里了
+    # ---- Step 3: 合并已有数据 ----
+    merged_counts: Dict[str, Dict[str, int]] = defaultdict(lambda: {"涨停": 0, "跌停": 0})
+    merged_info: Dict[str, Dict[str, Any]] = {}
+
+    if existing:
+        # 从已有 records 还原 counts 和 info
+        for rec in existing.get("records", []):
+            code = rec.get("股票代码")
+            if not code:
+                continue
+            merged_counts[code] = {
+                "涨停": rec.get("涨停次数", 0),
+                "跌停": rec.get("跌停次数", 0),
+            }
+            merged_info[code] = {
+                "股票名称": rec.get("股票名称", ""),
+                "收盘价": rec.get("收盘价"),
+                "流通市值": rec.get("流通市值"),
+                "总市值": rec.get("总市值"),
+                "PE": rec.get("PE"),
+                "所属行业": rec.get("所属行业", ""),
+            }
+
+    # 叠加新扫描结果
+    for code, c in new_counts.items():
+        merged_counts[code]["涨停"] += c.get("涨停", 0)
+        merged_counts[code]["跌停"] += c.get("跌停", 0)
+    for code, info in new_info.items():
+        # 新数据覆盖旧的（收盘价/市值要最新的）
+        merged_info[code] = info
+
+    if progress_cb:
+        progress_cb(f"合并后：{len(merged_counts)} 只股票有涨跌停记录")
+
+    # ---- Step 4: 尝试补充 PB/总股本 ----
     extra_map: Dict[str, Dict[str, Any]] = {}
     basic_df = fetch_basic_info_ak()
     if not basic_df.empty:
@@ -258,16 +333,14 @@ def scan(n_days: int = 90,
         if progress_cb:
             progress_cb(f"补充信息拿到 {len(extra_map)} 只（PB/总股本）")
 
-    # ---- Step 3: 合并 ----
+    # ---- Step 5: 最终 records ----
     records: List[Dict[str, Any]] = []
-    for code in set(counts.keys()) | set(info_map.keys()):
-        base = info_map.get(code, {})
+    for code in set(merged_counts.keys()) | set(merged_info.keys()):
+        base = merged_info.get(code, {})
         extra = extra_map.get(code, {})
-        c = counts.get(code, {"涨停": 0, "跌停": 0})
+        c = merged_counts.get(code, {"涨停": 0, "跌停": 0})
         name = base.get("股票名称", "")
         limit_pct = get_limit_pct(code, name)
-
-        # PE 优先用完整行情接口的，没有就用跌停池里的"动态市盈率"
         pe = extra.get("PE_full") or base.get("PE")
 
         records.append({
@@ -286,7 +359,6 @@ def scan(n_days: int = 90,
             "所属行业": base.get("所属行业", ""),
         })
 
-    # ---- Step 4: 默认按涨停次数降序 ----
     records.sort(key=lambda x: (-x["涨停次数"], -x["跌停次数"], x["股票代码"]))
     return records
 
@@ -310,15 +382,37 @@ def _to_float(val) -> Optional[float]:
 RESULT_FILE = os.path.join(DATA_DIR, "limit_results.json")
 
 
-def save_results(records: List[Dict[str, Any]], n_days: int) -> str:
-    """原子写 limit_results.json，返回文件路径。"""
+def save_results(records: List[Dict[str, Any]],
+                 mode: str = "incremental",
+                 scanned_dates: Optional[List[str]] = None,
+                 history_years: float = 3.0) -> str:
+    """原子写 limit_results.json，返回文件路径。
+
+    Args:
+        records: 最终合并后的 records
+        mode: "full" 或 "incremental"（写入元数据）
+        scanned_dates: 本次覆盖的交易日列表（增量合并用）。如果提供就更新元数据里的 scanned_dates
+        history_years: 时间窗口年数
+    """
     os.makedirs(DATA_DIR, exist_ok=True)
+
+    # 从现有文件里取已有的 scanned_dates 做合并
+    existing = load_results()
+    existing_dates = set(existing.get("scanned_dates", [])) if existing else set()
+
+    if scanned_dates:
+        existing_dates.update(scanned_dates)
+
     now = dt.datetime.now(dt.timezone.utc).astimezone(
         dt.timezone(dt.timedelta(hours=8))
     ).strftime("%Y-%m-%d %H:%M:%S")
     payload = {
         "records": records,
-        "scanned_days": n_days,
+        "mode": mode,
+        "history_years": history_years,
+        "scanned_dates": sorted(existing_dates),
+        "first_trade_date": min(existing_dates) if existing_dates else None,
+        "last_trade_date": max(existing_dates) if existing_dates else None,
         "updated_at": now,
         "total": len(records),
     }
@@ -339,12 +433,14 @@ def load_results() -> Optional[Dict[str, Any]]:
         return None
 
 
-# ============================================================
-# CLI 入口（refresh_all.py 调用）
-# ============================================================
+def run_cli(mode: str = "incremental", full: bool = False, history_years: float = 3.0):
+    """命令行入口，用于 refresh_all.py --run limit_stat。
 
-def run_cli(n_days: int = 90):
-    """命令行入口，用于 refresh_all.py --run limit_stat。"""
+    Args:
+        mode: "incremental"（默认）或 "full"
+        full: True 时强制全量扫描（覆盖 mode）
+        history_years: 往前扫多少年（默认 3）
+    """
     import logging
     log = logging.getLogger("limit_stat")
 
@@ -352,12 +448,24 @@ def run_cli(n_days: int = 90):
         log.info(msg)
         print(msg, flush=True)
 
-    prog(f"[limit_stat] 开始扫描，最近 {n_days} 个交易日")
+    actual_mode = "full" if full else mode
+    prog(f"[limit_stat] 开始，mode={actual_mode}  history_years={history_years}")
     t0 = time.time()
 
-    records = scan(n_days=n_days, progress_cb=prog)
+    records = scan(mode=actual_mode, history_years=history_years, progress_cb=prog)
 
-    path = save_results(records, n_days)
+    # 收集本次覆盖的交易日列表（给 save_results 存元数据）
+    n_trade = int(history_years * 255)
+    if actual_mode == "full":
+        scanned_dates = _iter_trade_dates(n_trade)
+    else:
+        existing = load_results()
+        existing_dates = set(existing.get("scanned_dates", [])) if existing else set()
+        all_dates = set(_iter_trade_dates(n_trade))
+        scanned_dates = list(all_dates - existing_dates) if existing else None
+
+    path = save_results(records, mode=actual_mode,
+                        scanned_dates=scanned_dates, history_years=history_years)
     elapsed = time.time() - t0
 
     prog(f"[limit_stat] 完成：{len(records)} 条记录 → {path}（耗时 {elapsed:.1f}s）")

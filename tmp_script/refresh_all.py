@@ -89,18 +89,16 @@ def task_st_time():
 
 
 def task_limit_stat():
-    """周一：历史涨跌停统计（90 个交易日，每周一次避免封 IP）"""
-    log(">> [周一] 刷新历史涨跌停统计（limit_stat 90d）")
+    """周一：历史涨跌停统计（增量合并，3 年窗口，每周只扫新交易日）"""
+    log(">> [周一] 刷新历史涨跌停统计（limit_stat 增量合并 3 年窗口）")
     try:
         from backend.app.services import limit_stat_service
 
         def prog(msg):
             log("  " + msg)
 
-        records = limit_stat_service.scan(n_days=90, progress_cb=prog)
-        path = limit_stat_service.save_results(records, n_days=90)
-        log("  OK %d 条记录 -> %s" % (len(records), path))
-        return True
+        # 默认增量模式：有历史数据就只扫新交易日，没有就首次全量（3 年 ≈ 766 交易日）
+        return limit_stat_service.run_cli(mode="incremental", history_years=3.0)
     except Exception as e:
         log("  FAIL limit_stat: %s" % e)
         import traceback; traceback.print_exc()
