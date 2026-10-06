@@ -118,17 +118,44 @@ def _try_import_tushare():
         return None
 
 
-def fetch_limit_pools_ak(trade_dates: List[str], progress_cb=None) -> Dict[str, Dict[str, int]]:
+def fetch_limit_pools_ak(trade_dates: List[str], progress_cb=None):
     """用 akshare 扫描涨停池 + 跌停池。
 
-    返回 dict: { code_or_name: {"涨停": int, "跌停": int} }
-    code_or_name 是涨停池返回的格式（纯数字代码如 "000001" + 名称）。
+    返回 (counts, info_map):
+      counts:  { code: {"涨停": int, "跌停": int} }
+      info_map:{ code: {"股票名称", "收盘价", "流通市值", "总市值", "PE", "所属行业"} }
+
+    基本信息直接从涨跌停池里提取（涨停池/跌停池都自带名称、最新价、市值），
+    这样就不依赖 stock_zh_a_spot_em（东方财富实时行情接口在容器里经常连不上）。
     """
     ak = _try_import_akshare()
     if ak is None:
         raise RuntimeError("akshare 未安装")
 
     counts: Dict[str, Dict[str, int]] = defaultdict(lambda: {"涨停": 0, "跌停": 0})
+    info_map: Dict[str, Dict[str, Any]] = {}  # code -> 基本信息（保留最新一天的值）
+
+    def _merge_row(row: dict, code: str, src: str):
+        """从涨跌停池的一行里提取基本信息，合并进 info_map。"""
+        cur = info_map.get(code, {})
+        # 名称、最新价、市值 —— 用最后一次出现的（最近的交易日）
+        if row.get("名称"):
+            cur["股票名称"] = str(row["名称"]).strip()
+        if row.get("最新价") is not None:
+            cur["收盘价"] = _to_float(row.get("最新价"))
+        if row.get("流通市值") is not None:
+            cur["流通市值"] = _to_float(row.get("流通市值"))
+        if row.get("总市值") is not None:
+            cur["总市值"] = _to_float(row.get("总市值"))
+        if row.get("成交额") is not None:
+            cur["成交额"] = _to_float(row.get("成交额"))
+        if row.get("所属行业"):
+            cur["所属行业"] = str(row["所属行业"]).strip()
+        # PE —— 只有跌停池有"动态市盈率"列
+        pe_key = "动态市盈率" if src == "dt" else None
+        if pe_key and row.get(pe_key) is not None:
+            cur["PE"] = _to_float(row.get(pe_key))
+        info_map[code] = cur
 
     for i, date_str in enumerate(trade_dates):
         if progress_cb:
@@ -142,12 +169,12 @@ def fetch_limit_pools_ak(trade_dates: List[str], progress_cb=None) -> Dict[str, 
                     key = str(row.get("代码", "")).strip()
                     if key:
                         counts[key]["涨停"] += 1
+                        _merge_row(dict(row), key, src="zt")
         except Exception:
-            # 非交易日或接口限频 → 稍长一点 sleep 退避
             time.sleep(0.6)
             pass
 
-        time.sleep(0.15)  # 两个池子之间隔开
+        time.sleep(0.15)
 
         # 跌停池
         try:
@@ -157,14 +184,14 @@ def fetch_limit_pools_ak(trade_dates: List[str], progress_cb=None) -> Dict[str, 
                     key = str(row.get("代码", "")).strip()
                     if key:
                         counts[key]["跌停"] += 1
+                        _merge_row(dict(row), key, src="dt")
         except Exception:
             time.sleep(0.6)
             pass
 
-        # 每天扫描完成后 sleep，防东方财富 IP 封禁（每周只扫一次更保险）
         time.sleep(0.3)
 
-    return counts
+    return counts, info_map
 
 
 def fetch_basic_info_ak() -> pd.DataFrame:
@@ -204,69 +231,59 @@ def scan(n_days: int = 90,
     if data_sources is None:
         data_sources = ["baostock", "tushare"]
 
-    # ---- Step 1: 扫描涨跌停池 ----
+    # ---- Step 1: 扫描涨跌停池（同时拿基本信息）----
     trade_dates = _iter_trade_dates(n_days)
     if progress_cb:
         progress_cb(f"准备扫描 {len(trade_dates)} 个交易日")
 
-    counts = fetch_limit_pools_ak(trade_dates, progress_cb=progress_cb)
+    counts, info_map = fetch_limit_pools_ak(trade_dates, progress_cb=progress_cb)
     if progress_cb:
-        progress_cb(f"涨跌停池扫描完成：{len(counts)} 只股票有记录")
+        progress_cb(f"涨跌停池扫描完成：{len(counts)} 只股票有记录，{len(info_map)} 只有基本信息")
 
-    # ---- Step 2: 获取全市场基本信息 ----
+    # ---- Step 2: 尝试用 stock_zh_a_spot_em 补充更多字段（PB、总股本等）----
+    # 这个接口经常连不上（sandbox 代理 + production 容器无外网），
+    # 连不上也不影响，核心字段都在 info_map 里了
+    extra_map: Dict[str, Dict[str, Any]] = {}
     basic_df = fetch_basic_info_ak()
-
-    # 如果 akshare 拿不到基本信息（sandbox 代理场景），只用涨跌停池里已有的股票
-    if basic_df.empty:
-        if progress_cb:
-            progress_cb("基本信息接口不可用，仅输出涨跌停池有记录的股票")
-        basic_map: Dict[str, Dict[str, Any]] = {}
-    else:
-        if progress_cb:
-            progress_cb(f"拿到 {len(basic_df)} 只股票基本信息")
-        basic_map = {}
+    if not basic_df.empty:
         for _, row in basic_df.iterrows():
             code = str(row.get("代码", "")).strip()
             if not code:
                 continue
-            basic_map[code] = {
-                "股票名称": str(row.get("名称", "")),
-                "收盘价": _to_float(row.get("最新价")),
-                "涨跌幅": _to_float(row.get("涨跌幅")),
-                "PE": _to_float(row.get("市盈率-动态")),
+            extra_map[code] = {
                 "PB": _to_float(row.get("市净率")),
                 "总股本": _to_float(row.get("总股本")),
-                "总市值": _to_float(row.get("总市值")),
-                "流通市值": _to_float(row.get("流通市值")),
+                "PE_full": _to_float(row.get("市盈率-动态")),
             }
+        if progress_cb:
+            progress_cb(f"补充信息拿到 {len(extra_map)} 只（PB/总股本）")
 
     # ---- Step 3: 合并 ----
-    # 如果有基本信息就取全部；否则只取 counts 里有的
-    if basic_map:
-        all_codes = set(basic_map.keys()) | set(counts.keys())
-    else:
-        all_codes = set(counts.keys())
-
     records: List[Dict[str, Any]] = []
-    for code in all_codes:
-        info = basic_map.get(code, {})
+    for code in set(counts.keys()) | set(info_map.keys()):
+        base = info_map.get(code, {})
+        extra = extra_map.get(code, {})
         c = counts.get(code, {"涨停": 0, "跌停": 0})
-        name = info.get("股票名称", "")
+        name = base.get("股票名称", "")
         limit_pct = get_limit_pct(code, name)
+
+        # PE 优先用完整行情接口的，没有就用跌停池里的"动态市盈率"
+        pe = extra.get("PE_full") or base.get("PE")
 
         records.append({
             "股票名称": name or "",
             "股票代码": code,
-            "收盘价": info.get("收盘价"),
+            "收盘价": base.get("收盘价"),
             "涨停次数": c.get("涨停", 0),
             "跌停次数": c.get("跌停", 0),
             "涨跌停幅度(%)": limit_pct,
             "板块": get_market_name(code),
-            "PE": info.get("PE"),
-            "PB": info.get("PB"),
-            "总股本": info.get("总股本"),
-            "总市值": info.get("总市值"),
-            "流通市值": info.get("流通市值"),
+            "PE": pe,
+            "PB": extra.get("PB"),
+            "总股本": extra.get("总股本"),
+            "总市值": base.get("总市值"),
+            "流通市值": base.get("流通市值"),
+            "所属行业": base.get("所属行业", ""),
         })
 
     # ---- Step 4: 默认按涨停次数降序 ----
