@@ -45,6 +45,10 @@ export const cbondListing = (p = {}) => http.post('/cbond/listing', p).then(unwr
 export const cbondReview = (p = {}) => http.post('/cbond/review', p).then(unwrap)
 export const tender = (p) => http.post('/cbond/tender', p).then(unwrap)
 
+// ---------- 历史涨跌停统计 ----------
+export const limitStats = (p = {}) =>
+  http.get('/market/limit-stats', { params: p }).then(unwrap)
+
 // ---------- 管理员后台 ----------
 export const adminStats = () => http.get('/admin/stats').then(unwrap)
 export const adminUsers = (p) => http.get('/admin/users', { params: p }).then(unwrap)

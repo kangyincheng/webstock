@@ -16,6 +16,7 @@ const navMenu = [
     { key: '/cbond', title: '💴 可转债' },
     { key: '/tender', title: '📢 要约收购' },
     { key: '/sector', title: '🔥 板块热度' },
+    { key: '/limit-stat', title: '📊 历史涨跌停统计' },
     { key: '/hot', title: '⭐ 热门股票' },
     { key: '/favorites', title: '💖 自选股' },
     // ST 股票：两级子菜单

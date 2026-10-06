@@ -24,6 +24,8 @@ const routes = [
     meta: { title: '要约收购', icon: '📢' } },
   { path: '/sector', name: 'Sector', component: () => import('../views/SectorHeat.vue'),
     meta: { title: '板块热度', icon: '🔥' } },
+  { path: '/limit-stat', name: 'LimitStat', component: () => import('../views/LimitStat.vue'),
+    meta: { title: '历史涨跌停统计', icon: '📊' } },
   { path: '/hot', name: 'Hot', component: () => import('../views/HotStocks.vue'),
     meta: { title: '热门股票', icon: '⭐' } },
   { path: '/favorites', name: 'Favorites', component: () => import('../views/Favorites.vue'),
