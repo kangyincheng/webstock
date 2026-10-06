@@ -136,17 +136,95 @@ class MarketServices:
     def cbond(self, category: str = "subscribe",
               progress_cb: Optional[Callable[[str], None]] = None
               ) -> List[Dict[str, Any]]:
-        az = ConvertibleBondAnalyzer(data_dir=self.data_dir)
+        """可转债：申购 / 上市 / 发审。
+
+        subscribe / listing: 用 akshare.bond_zh_cov()（东方财富数据源，真实数据）
+        review: 用 ConvertibleBondAnalyzer.fetch_review（tushare + mock）
+        """
         if category == "review":
+            az = ConvertibleBondAnalyzer(data_dir=self.data_dir)
             df = az.fetch_review(progress_callback=progress_cb)
             return _df_to_records(df)
-        # subscribe / listing 从 fetch_new_ipo 的二元组里取
-        pair = az.fetch_new_ipo(progress_callback=progress_cb)
-        if not pair:
+
+        # ---- subscribe / listing 用 akshare 真实数据 ----
+        try:
+            import akshare as ak
+        except ImportError:
+            if progress_cb:
+                progress_cb("akshare 未安装，回退到 mock")
+            az = ConvertibleBondAnalyzer(data_dir=self.data_dir)
+            pair = az.fetch_new_ipo(progress_callback=progress_cb)
+            if not pair:
+                return []
+            sub_df, list_df = pair
+            df = list_df if category == "listing" else sub_df
+            return _df_to_records(df)
+
+        today = time.strftime("%Y-%m-%d", time.localtime())
+        if progress_cb:
+            progress_cb(f"从东方财富获取可转债 {category} 数据...")
+
+        try:
+            df = ak.bond_zh_cov()
+        except Exception as e:
+            if progress_cb:
+                progress_cb(f"akshare 获取失败: {e}，回退 mock")
+            az = ConvertibleBondAnalyzer(data_dir=self.data_dir)
+            pair = az.fetch_new_ipo(progress_callback=progress_cb)
+            if not pair:
+                return []
+            sub_df, list_df = pair
+            df = list_df if category == "listing" else sub_df
+            return _df_to_records(df)
+
+        # 字段名映射（akshare bond_zh_cov → 前端期望）
+        COL_MAP = {
+            "债券代码": "转债代码",
+            "债券简称": "转债名称",
+            "申购日期": "申购日期",
+            "上市时间": "上市日期",
+            "正股代码": "正股代码",
+            "正股简称": "正股名称",
+            "正股价": "正股价",
+            "转股价": "转股价",
+            "转股价值": "转股价值",
+            "债现价": "转债开盘价",   # 上市当日用
+            "转股溢价率": "可转债溢价率(%)",
+            "申购代码": "配售代码",
+            "申购上限": "申购上限(万元)",
+        }
+
+        if category == "subscribe":
+            # 当日可申购：申购日期 == 今天
+            # bond_zh_cov 的"申购上限"列单位是万元（akshare 注释）
+            today_df = df[df["申购日期"] == today].copy()
+        else:
+            # 当日上市：上市时间 == 今天（跳过 NaT）
+            today_df = df[(df["上市时间"].notna()) & (df["上市时间"] != "NaT") &
+                          (df["上市时间"].astype(str).str.startswith(today))].copy()
+
+        if today_df.empty:
+            if progress_cb:
+                progress_cb(f"今日无 {category} 可转债")
             return []
-        sub_df, list_df = pair
-        df = list_df if category == "listing" else sub_df
-        return _df_to_records(df)
+
+        # 列名对齐 + 加发行价
+        out = pd.DataFrame()
+        for src, dst in COL_MAP.items():
+            if src in today_df.columns:
+                out[dst] = today_df[src]
+        out["债发行价"] = 100.0
+
+        # 上市类额外字段
+        if category == "listing":
+            out["首日涨幅(%)"] = (out["转债开盘价"].astype(float) - 100.0)
+
+        out["可转债溢价率(%)"] = pd.to_numeric(out["可转债溢价率(%)"], errors="coerce")
+
+        if progress_cb:
+            progress_cb(f"共 {len(out)} 只（来源：东方财富）")
+
+        return _df_to_records(out)
 
     # ------------- 要约收购 -------------
     def tender_offer(self, market: str = "cn",
