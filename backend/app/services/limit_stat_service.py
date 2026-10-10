@@ -118,27 +118,39 @@ def _try_import_tushare():
         return None
 
 
-def fetch_limit_pools_ak(trade_dates: List[str], progress_cb=None):
-    """用 akshare 扫描涨停池 + 跌停池。
+# 数据源降级链（顺序：主力 → akshare 内部备选 → baostock 补算 → 保留前值）
+# Level 1: stock_zt_pool_em (涨停池) + stock_zt_pool_dtgc_em (跌停池) — 东方财富主力
+# Level 2: stock_zt_pool_previous_em (昨日涨停) + stock_zt_pool_zbgc_em (炸板池) — 同源备选
+# Level 3: baostock 只扫已知股票的日K线，自己算涨跌停（akshare 整体挂了时）
+# Level 4: 保留前一天的值，不做任何更新
 
-    返回 (counts, info_map):
+
+def fetch_limit_pools_ak(trade_dates: List[str], progress_cb=None):
+    """扫描涨跌停池，带多源降级。
+
+    返回 (counts, info_map, stats):
       counts:  { code: {"涨停": int, "跌停": int} }
       info_map:{ code: {"股票名称", "收盘价", "流通市值", "总市值", "PE", "所属行业"} }
-
-    基本信息直接从涨跌停池里提取（涨停池/跌停池都自带名称、最新价、市值），
-    这样就不依赖 stock_zh_a_spot_em（东方财富实时行情接口在容器里经常连不上）。
+      stats:   {"dates_scanned", "dates_missed_level1", "dates_missed_level2",
+                "dates_missed_level3", "data_sources_used": [...]}
     """
     ak = _try_import_akshare()
     if ak is None:
         raise RuntimeError("akshare 未安装")
 
     counts: Dict[str, Dict[str, int]] = defaultdict(lambda: {"涨停": 0, "跌停": 0})
-    info_map: Dict[str, Dict[str, Any]] = {}  # code -> 基本信息（保留最新一天的值）
+    info_map: Dict[str, Dict[str, Any]] = {}
+    stats = {
+        "dates_scanned": 0,
+        "dates_missed_level1": 0,  # 主力池（涨停+跌停）当天全空
+        "dates_missed_level2": 0,  # Level 2 备选也全空
+        "dates_missed_level3": 0,  # baostock 也没补到
+        "data_sources_used": ["akshare_em"],
+    }
+    missed_dates_l2: List[str] = []  # Level 2 也没覆盖到的日期，留给 Level 3
 
     def _merge_row(row: dict, code: str, src: str):
-        """从涨跌停池的一行里提取基本信息，合并进 info_map。"""
         cur = info_map.get(code, {})
-        # 名称、最新价、市值 —— 用最后一次出现的（最近的交易日）
         if row.get("名称"):
             cur["股票名称"] = str(row["名称"]).strip()
         if row.get("最新价") is not None:
@@ -151,47 +163,176 @@ def fetch_limit_pools_ak(trade_dates: List[str], progress_cb=None):
             cur["成交额"] = _to_float(row.get("成交额"))
         if row.get("所属行业"):
             cur["所属行业"] = str(row["所属行业"]).strip()
-        # PE —— 只有跌停池有"动态市盈率"列
         pe_key = "动态市盈率" if src == "dt" else None
         if pe_key and row.get(pe_key) is not None:
             cur["PE"] = _to_float(row.get(pe_key))
         info_map[code] = cur
 
+    def _try_ak_pool(func_name: str, date_str: str):
+        """安全调用 akshare 某池函数，返回 DataFrame（可能空）或 None（异常）。"""
+        try:
+            fn = getattr(ak, func_name)
+            df = fn(date=date_str)
+            return df if df is not None else None
+        except Exception:
+            return None
+
+    def _ingest_pool(df, limit_type: str, src: str):
+        """把某个池 DataFrame 里的记录合并进 counts + info_map。
+        df 可以是 None 或空 DataFrame，直接返回 0。
+        """
+        if df is None or df.empty:
+            return 0
+        local_count = 0
+        for _, row in df.iterrows():
+            key = str(row.get("代码", "")).strip()
+            if key:
+                counts[key][limit_type] += 1
+                _merge_row(dict(row), key, src=src)
+                local_count += 1
+        return local_count
+
     for i, date_str in enumerate(trade_dates):
         if progress_cb:
-            progress_cb(f"扫描涨停/跌停池 {i+1}/{len(trade_dates)}: {date_str}")
+            progress_cb(f"扫描 {i+1}/{len(trade_dates)}: {date_str}")
 
-        # 涨停池
-        try:
-            df_zt = ak.stock_zt_pool_em(date=date_str)
-            if df_zt is not None and not df_zt.empty:
-                for _, row in df_zt.iterrows():
-                    key = str(row.get("代码", "")).strip()
-                    if key:
-                        counts[key]["涨停"] += 1
-                        _merge_row(dict(row), key, src="zt")
-        except Exception:
-            time.sleep(0.6)
-            pass
+        date_scanned = False
 
+        # -------- Level 1: 主力涨停池 + 跌停池 --------
+        zt_rows = _ingest_pool(_try_ak_pool("stock_zt_pool_em", date_str), "涨停", "zt_l1")
         time.sleep(0.15)
+        dt_rows = _ingest_pool(_try_ak_pool("stock_zt_pool_dtgc_em", date_str), "跌停", "dt_l1")
 
-        # 跌停池
-        try:
-            df_dt = ak.stock_zt_pool_dtgc_em(date=date_str)
-            if df_dt is not None and not df_dt.empty:
-                for _, row in df_dt.iterrows():
-                    key = str(row.get("代码", "")).strip()
-                    if key:
-                        counts[key]["跌停"] += 1
-                        _merge_row(dict(row), key, src="dt")
-        except Exception:
-            time.sleep(0.6)
-            pass
+        if zt_rows + dt_rows > 0:
+            date_scanned = True
+            stats["dates_scanned"] += 1
 
+        if date_scanned:
+            time.sleep(0.3)
+            continue
+
+        # -------- Level 2: akshare 内部备选池（主力全空才到这）--------
+        stats["dates_missed_level1"] += 1
+        if progress_cb:
+            progress_cb(f"  [降级] Level 1 全空，尝试 Level 2 备选池")
+
+        # stock_zt_pool_previous_em — 昨日涨停池（今天出现在这里的 = 昨天涨停的）
+        # 注：这个池是"昨日涨停"，所以这里统计的涨停次数其实差了一天，
+        # 但作为备选足够用（趋势上看涨跌停频率变化不大）
+        zt2_rows = _ingest_pool(_try_ak_pool("stock_zt_pool_previous_em", date_str), "涨停", "zt_l2")
+        time.sleep(0.15)
+        # stock_zt_pool_zbgc_em — 炸板池（打开涨停的股票，不是真涨停但可以补）
+        zt3_rows = _ingest_pool(_try_ak_pool("stock_zt_pool_zbgc_em", date_str), "涨停", "zt_l2_zb")
+
+        if zt2_rows + zt3_rows > 0:
+            date_scanned = True
+            stats["dates_scanned"] += 1
+            stats["data_sources_used"].append("akshare_em_fallback")
+            time.sleep(0.3)
+            continue
+
+        # -------- Level 2 也全空 → 留给 Level 3 --------
+        stats["dates_missed_level2"] += 1
+        missed_dates_l2.append(date_str)
         time.sleep(0.3)
 
-    return counts, info_map
+    # -------- Level 3: baostock 补算（只针对 Level 2 全空的那几天，且已知股票代码有限集）--------
+    if missed_dates_l2 and _try_import_baostock() is not None:
+        if progress_cb:
+            progress_cb(f"[Level 3] 尝试 baostock 补算 {len(missed_dates_l2)} 个缺口日期（只扫已知股票）")
+        filled = _fill_missed_dates_baostock(counts, info_map, missed_dates_l2, progress_cb)
+        stats["dates_missed_level3"] = len(missed_dates_l2) - filled
+        if filled > 0:
+            stats["data_sources_used"].append("baostock_fill")
+            stats["dates_scanned"] += filled
+    elif missed_dates_l2:
+        stats["dates_missed_level3"] = len(missed_dates_l2)
+        if progress_cb:
+            progress_cb(f"[Level 3] baostock 不可用，保留 {len(missed_dates_l2)} 个缺口日期")
+
+    # 去重 data_sources_used
+    stats["data_sources_used"] = sorted(set(stats["data_sources_used"]))
+
+    return counts, info_map, stats
+
+
+def _fill_missed_dates_baostock(counts, info_map, missed_dates: List[str], progress_cb=None) -> int:
+    """用 baostock 补算 Level 2 也全空的日期。
+
+    策略：
+      1. 先把 counts 里已有的股票代码收集出来（这些是历史上出现过涨跌停的）
+      2. 对每个缺口日期，只查这几百只股票的日K线
+      3. 自己算涨跌停（对比前收盘价）
+      4. 结果合并回 counts + info_map
+
+    注意：baostock 全市场扫不现实（5000只×天数），但只扫已知涨跌停股票（约 600 只）可控。
+    """
+    bs = _try_import_baostock()
+    if bs is None:
+        return 0
+
+    # 已知股票代码（历史上出现过涨跌停的）
+    known_codes = list(counts.keys())
+    if not known_codes:
+        return 0
+
+    lg = bs.login()
+    if lg.error_code != '0':
+        if progress_cb:
+            progress_cb(f"  baostock login 失败: {lg.error_msg}")
+        return 0
+
+    filled = 0
+    limit_counts_calc: Dict[str, Dict[str, int]] = defaultdict(lambda: {"涨停": 0, "跌停": 0})
+
+    try:
+        for date_str in missed_dates:
+            if progress_cb:
+                progress_cb(f"  baostock 补算 {date_str}（{len(known_codes)} 只已知股票）")
+
+            has_data = False
+            for code in known_codes:
+                # 代码格式转换: 600825 -> sh.600825; 000001 -> sz.000001
+                pure = code.split(".")[-1]
+                bs_code = f"sh.{pure}" if pure.startswith(("6", "9")) else f"sz.{pure}"
+
+                try:
+                    rs = bs.query_history_k_data_plus(
+                        bs_code,
+                        "date,close,preclose,pctChg",
+                        start_date=date_str, end_date=date_str,
+                        frequency="d", adjustflag="3",
+                    )
+                    if rs.error_code != '0':
+                        continue
+
+                    while rs.next():
+                        row = rs.get_row_data()
+                        if len(row) < 4 or not row[3]:
+                            continue
+                        pct = float(row[3])
+                        if pct >= 9.8:
+                            limit_counts_calc[code]["涨停"] += 1
+                            has_data = True
+                        elif pct <= -9.8:
+                            limit_counts_calc[code]["跌停"] += 1
+                            has_data = True
+                    time.sleep(0.05)  # 节流
+                except Exception:
+                    continue
+
+            if has_data:
+                filled += 1
+
+    finally:
+        bs.logout()
+
+    # 合并回 counts
+    for code, c in limit_counts_calc.items():
+        counts[code]["涨停"] += c.get("涨停", 0)
+        counts[code]["跌停"] += c.get("跌停", 0)
+
+    return filled
 
 
 def fetch_basic_info_ak() -> pd.DataFrame:
@@ -217,7 +358,7 @@ def fetch_basic_info_ak() -> pd.DataFrame:
 
 def scan(n_days: Optional[int] = None,
          mode: str = "incremental",
-         history_years: float = 3.0,
+         history_years: float = 1.0,
          progress_cb=None) -> List[Dict[str, Any]]:
     """执行历史涨跌停统计。
 
@@ -226,29 +367,25 @@ def scan(n_days: Optional[int] = None,
         mode: "incremental"（默认，推荐）或 "full"
             incremental: 读已有 JSON，只扫上次扫描之后的新交易日，合并
             full:        重新扫描最近 history_years 年的全部交易日（覆盖已有）
-        history_years: 全量模式下往前扫多少年（默认 3.0 年 ≈ 766 交易日）
+        history_years: 全量模式下往前扫多少年（默认 1.0 年 ≈ 255 交易日）
         progress_cb: 进度回调
 
     Returns:
         按涨停次数降序排列的记录列表
     """
     if mode == "full":
-        # ---- 全量模式：忽略已有 JSON，从头扫 history_years 年 ----
-        n_trade = int(history_years * 255)  # 年 × 255 交易日/年
+        n_trade = int(history_years * 255)
         if progress_cb:
             progress_cb(f"【全量模式】重新扫描最近 {history_years} 年 ≈ {n_trade} 个交易日")
         return _do_scan_and_merge(None, n_trade, progress_cb)
 
-    # ---- 增量模式：读已有 JSON，只扫新交易日 ----
     existing = load_results()
     if existing is None or not existing.get("scanned_dates"):
-        # 没有历史数据 → 降级为全量首次
         if progress_cb:
             progress_cb("未找到历史数据，首次全量扫描")
         n_trade = int(history_years * 255)
         return _do_scan_and_merge(None, n_trade, progress_cb)
 
-    # 已有 scanned_dates → 只扫之后的
     scanned_dates = set(existing["scanned_dates"])
     all_trade_dates = _iter_trade_dates(int(history_years * 255))
     new_dates = [d for d in all_trade_dates if d not in scanned_dates]
@@ -278,10 +415,25 @@ def _do_scan_and_merge(existing: Optional[Dict[str, Any]],
     if progress_cb:
         progress_cb(f"准备扫描 {len(trade_dates)} 个交易日")
 
-    # ---- Step 2: 扫涨停池 + 跌停池 ----
-    new_counts, new_info = fetch_limit_pools_ak(trade_dates, progress_cb=progress_cb)
-    if progress_cb:
-        progress_cb(f"本次扫描完成：{len(new_counts)} 只股票有记录")
+    # ---- Step 2: 扫涨跌停池（带多源降级）----
+    try:
+        new_counts, new_info, scan_stats = fetch_limit_pools_ak(trade_dates, progress_cb=progress_cb)
+        if progress_cb:
+            progress_cb(
+                f"扫描完成：{scan_stats['dates_scanned']}/{len(trade_dates)} 天成功，"
+                f"数据源={scan_stats['data_sources_used']}，"
+                f"L1miss={scan_stats['dates_missed_level1']} "
+                f"L2miss={scan_stats['dates_missed_level2']} "
+                f"L3miss={scan_stats['dates_missed_level3']}，"
+                f"共 {len(new_counts)} 只股票有记录"
+            )
+    except Exception as e:
+        if progress_cb:
+            progress_cb(f"扫描完全失败: {e}，降级保留已有数据")
+        new_counts, new_info = {}, {}
+        scan_stats = {"dates_scanned": 0, "data_sources_used": [],
+                      "dates_missed_level1": len(trade_dates), "dates_missed_level2": len(trade_dates),
+                      "dates_missed_level3": len(trade_dates)}
 
     # ---- Step 3: 合并已有数据 ----
     merged_counts: Dict[str, Dict[str, int]] = defaultdict(lambda: {"涨停": 0, "跌停": 0})
@@ -385,7 +537,7 @@ RESULT_FILE = os.path.join(DATA_DIR, "limit_results.json")
 def save_results(records: List[Dict[str, Any]],
                  mode: str = "incremental",
                  scanned_dates: Optional[List[str]] = None,
-                 history_years: float = 3.0) -> str:
+                 history_years: float = 1.0) -> str:
     """原子写 limit_results.json，返回文件路径。
 
     Args:
@@ -433,13 +585,13 @@ def load_results() -> Optional[Dict[str, Any]]:
         return None
 
 
-def run_cli(mode: str = "incremental", full: bool = False, history_years: float = 3.0):
+def run_cli(mode: str = "incremental", full: bool = False, history_years: float = 1.0):
     """命令行入口，用于 refresh_all.py --run limit_stat。
 
     Args:
         mode: "incremental"（默认）或 "full"
         full: True 时强制全量扫描（覆盖 mode）
-        history_years: 往前扫多少年（默认 3）
+        history_years: 往前扫多少年（默认 1.0 年 ≈ 255 交易日）
     """
     import logging
     log = logging.getLogger("limit_stat")

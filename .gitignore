@@ -54,3 +54,4 @@ deploy/nginx/logs/
 .vscode/
 .DS_Store
 Thumbs.db
+.trae-html-share-packages/
