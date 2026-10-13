@@ -15,6 +15,7 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, HTTPException, Query
 
 from ..cache import CacheLayer
+from ..schemas import DataResponse
 from ..services import limit_stat_service
 
 router = APIRouter()
@@ -53,7 +54,7 @@ def _mark_refreshed():
         pass
 
 
-@router.get("/limit-stats", response_model=Dict[str, Any])
+@router.get("/limit-stats", response_model=DataResponse)
 async def limit_stats(
     n_days: int = Query(90, ge=5, le=365),
     refresh: bool = Query(False, description="[运维专用] 强制实时扫描，12h 内限一次"),
@@ -81,11 +82,11 @@ async def limit_stats(
         _mark_refreshed()
         result = await _realtime_scan(n_days)
         cache.set_json(cache_key, result, ex=3600)
-        return result
+        return DataResponse(data=result)
 
     cached = cache.get_json(cache_key)
     if cached is not None:
-        return {**cached, "cache_hit": True}
+        return DataResponse(data={**cached, "cache_hit": True})
 
     pre = limit_stat_service.load_results()
     if pre:
@@ -101,7 +102,7 @@ async def limit_stats(
             "message": f"使用预计算文件（{pre.get('updated_at', '未知时间')}），共 {total} 条",
         }
         cache.set_json(cache_key, {k: v for k, v in result.items() if k != "cache_hit"}, ex=3600)
-        return result
+        return DataResponse(data=result)
 
     # 文件不存在 → 返回提示，不做兜底实时扫描（防封 IP）
     raise HTTPException(
