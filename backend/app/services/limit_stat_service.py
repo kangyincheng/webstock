@@ -9,7 +9,6 @@
 
 结果写入 backend/data/limit_results.json，由 refresh_all.py 定时刷新。
 """
-from __future__ import annotations
 
 import datetime as dt
 import json

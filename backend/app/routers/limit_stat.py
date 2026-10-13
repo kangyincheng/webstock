@@ -5,7 +5,6 @@
       不再兜底实时扫描，避免触发 90 天×2 池=180+ 次 akshare 调用被封 IP。
       ?refresh=1 仅限后端运维（频率限制 12h 一次），前端不再暴露入口。
 """
-from __future__ import annotations
 
 import asyncio
 import os
