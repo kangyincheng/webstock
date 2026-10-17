@@ -347,10 +347,10 @@ def scan_all() -> List[Dict[str, Any]]:
             r["可申请摘帽日"] = None
             r["距可申请天数"] = None
 
-    # 排序：有日期的在前，然后按距可申请天数绝对值升序（从近到远）
-    # 注意：用显式 None 检查，避免距可申请天数=0 被 or 逻辑误判
+    # 排序：有日期的在前，然后按距可申请天数真实数值升序
+    # 负数(超期) → 0(刚好) → 正数(还需等待) → None(无)
     results.sort(key=lambda x: x.get("距可申请天数") is not None, reverse=True)
-    results.sort(key=lambda x: abs(x["距可申请天数"]) if x.get("距可申请天数") is not None else 99999)
+    results.sort(key=lambda x: x["距可申请天数"] if x.get("距可申请天数") is not None else 99999)
     return results
 
 

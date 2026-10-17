@@ -257,9 +257,9 @@ def _recalc_days(records: list) -> None:
         else:
             r["距可申请天数"] = None
 
-    # 排序：有天数的在前 → 按绝对值升序（从近到远）；None 排最后
+    # 排序：有天数的在前 → 按真实数值升序（负数→0→正数）；None 排最后
     records.sort(key=lambda x: x.get("距可申请天数") is not None, reverse=True)
-    records.sort(key=lambda x: abs(x["距可申请天数"]) if x.get("距可申请天数") is not None else 99999)
+    records.sort(key=lambda x: x["距可申请天数"] if x.get("距可申请天数") is not None else 99999)
 
 
 @router.get("/st/time", response_model=DataResponse)
